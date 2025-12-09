@@ -105,23 +105,33 @@ def evaluate(data: dict):
 @equation.evolve
 def modify_features(df_input) -> pd.DataFrame:
     """
-    Initial feature engineering for wind power prediction.
+    Feature engineering for wind power prediction.
 
-    This is a seed function. LLM will evolve this to generate better features.
+    IMPORTANT: Always use df_output = df_input.copy() and return df_output at the end!
 
-    Potential transformations:
-    - Wind speed interactions: ws_100m * ws_10m
-    - Pressure gradients: pmsl differences between grids
-    - Non-linear transforms: log(wind_speed), wind_speed^2, wind_speed^3
-    - Wind power potential: wind_speed^3 (cubic relationship)
-    - Temperature-pressure interactions
+    Available features:
+    - Wind U/V components at 10m for 4 grids (ecmwf_ifs025_grid{1-4}_wind_u_10m, wind_v_10m)
+    - Relative humidity at 2m for 4 grids (ecmwf_ifs025_grid{1-4}_relative_humidity_2m)
+    - Pressure MSL and surface pressure for 4 grids
+    - Time features (hour_sin, hour_cos, day_of_week_sin, day_of_week_cos, month_sin, month_cos)
+
+    Suggested transformations:
+    - Wind speed from U/V: sqrt(u^2 + v^2)
+    - Wind direction: arctan2(v, u)
+    - Wind power potential: wind_speed^3 (cubic relationship with power)
+    - Pressure gradients: differences between grids
+    - Cross-grid features: mean, std, max, min across grids
     - Time-weather interactions: hour_sin * wind_speed
+    - Non-linear transforms: log, square, cube
     """
     import pandas as pd
     import numpy as np
 
+    # IMPORTANT: Always copy the input DataFrame first
     df_output = df_input.copy()
 
-    # LLM will generate feature transformations here
+    # Add your feature engineering code here
+    # Example: df_output['wind_speed_grid1'] = np.sqrt(df_output['ecmwf_ifs025_grid1_wind_u_10m']**2 + df_output['ecmwf_ifs025_grid1_wind_v_10m']**2)
 
+    # IMPORTANT: Always return df_output at the end
     return df_output
