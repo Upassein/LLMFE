@@ -1,0 +1,112 @@
+"""
+[PREFIX]
+
+###
+<Task>
+Predict wind power generation (MW) from meteorological forecast data.
+
+###
+<Features>
+[FEATURES]
+
+###
+<Examples>
+[EXAMPLES]
+[SUFFIX]
+"""
+
+@evaluate.run
+def evaluate(data: dict):
+    """
+    Evaluate the feature transformations on wind power prediction task.
+
+    Uses time-series K-Fold CV with LightGBM to assess feature quality.
+    """
+    from sklearn.model_selection import KFold
+    from sklearn.metrics import mean_squared_error
+    import lightgbm as lgb
+    import numpy as np
+    import pandas as pd
+
+    # Load data
+    inputs, outputs = data['inputs'], data['outputs']
+
+    # Apply feature transformation
+    X = modify_features(inputs)
+    y = outputs
+
+    # Encode categorical columns if any
+    for col in X.columns:
+        if X[col].dtype == 'object' or X[col].dtype.name == 'string':
+            X[col] = pd.Categorical(X[col]).codes
+
+    # Handle missing values and infinite values
+    X = X.replace([np.inf, -np.inf], np.nan)
+    X = X.fillna(0)
+
+    # Time-series K-Fold CV (no shuffle to preserve temporal order)
+    kf = KFold(n_splits=4, shuffle=False)
+    scores = []
+
+    for train_idx, test_idx in kf.split(X, y):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y[train_idx], y[test_idx]
+
+        # Train LightGBM (using Wind project's typical config)
+        model = lgb.LGBMRegressor(
+            n_estimators=100,
+            learning_rate=0.05,
+            max_depth=7,
+            num_leaves=31,
+            min_child_samples=20,
+            random_state=42,
+            verbose=-1,
+            n_jobs=1
+        )
+
+        try:
+            model.fit(
+                X_train, y_train,
+                eval_set=[(X_test, y_test)],
+                # early_stopping_rounds=10,  # Optional: uncomment for early stopping
+                verbose=False
+            )
+
+            # Predict and calculate RMSE
+            y_pred = model.predict(X_test)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            scores.append(-rmse)  # Negative for maximization
+
+        except Exception as e:
+            # If training fails, return a very bad score
+            print(f"Training error: {e}")
+            scores.append(-999999)
+
+    # Return average score
+    avg_score = np.mean(scores)
+    return avg_score, inputs, outputs
+
+
+@equation.evolve
+def modify_features(df_input) -> pd.DataFrame:
+    """
+    Initial feature engineering for wind power prediction.
+
+    This is a seed function. LLM will evolve this to generate better features.
+
+    Potential transformations:
+    - Wind speed interactions: ws_100m * ws_10m
+    - Pressure gradients: pmsl differences between grids
+    - Non-linear transforms: log(wind_speed), wind_speed^2, wind_speed^3
+    - Wind power potential: wind_speed^3 (cubic relationship)
+    - Temperature-pressure interactions
+    - Time-weather interactions: hour_sin * wind_speed
+    """
+    import pandas as pd
+    import numpy as np
+
+    df_output = df_input.copy()
+
+    # LLM will generate feature transformations here
+
+    return df_output

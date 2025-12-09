@@ -1,5 +1,5 @@
 ################ LLM-FE with API ################
-export API_KEY=ENTER API KEY
+export API_KEY=sk-vx4SEzYSa8OzDH68izQgcXTFqsoDXJHMDAV9JZRftSwxdDvC
 #### Classification Datasets ####
 
 ## balance-scale ## 
@@ -76,7 +76,7 @@ export API_KEY=ENTER API KEY
 # python main.py --use_api True --api_model "gpt-3.5-turbo" --problem_name housing --spec_path ./specs/specification_housing.txt --log_path ./logs/housing_gpt3.5
 
 ## insurance ##
-# python main.py --use_api True --api_model "gpt-3.5-turbo" --problem_name insurance --spec_path ./specs/specification_insurance.txt --log_path ./logs/insurance_gpt3.5
+python main.py --use_api True --api_model "gpt-3.5-turbo" --problem_name insurance --spec_path ./specs/specification_insurance.txt --log_path ./logs/insurance_gpt3.5
 
 ## forest-fires ##
 # python main.py --use_api True --api_model "gpt-3.5-turbo" --problem_name forest-fires --spec_path ./specs/specification_forest-fires.txt --log_path ./logs/forest-fires_gpt3.5_tpfn

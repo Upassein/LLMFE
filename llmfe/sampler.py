@@ -202,11 +202,35 @@ class LocalLLM(LLM):
     def _draw_samples_api(self, prompt: str, config: config_lib.Config) -> Collection[str]:
         all_samples = []
         prompt = '\n'.join([self._instruction_prompt, prompt])
-        
+
+        # 从环境变量读取 API 配置
+        api_key = os.environ.get('API_KEY', '')
+
+        # 根据 API Key 前缀自动判断端点
+        if api_key.startswith('sk-or-'):
+            # OpenRouter
+            api_base_url = 'openrouter.ai'
+            api_path = '/api/v1/chat/completions'
+        elif api_key.startswith('gsk_'):
+            # Groq
+            api_base_url = 'api.groq.com'
+            api_path = '/openai/v1/chat/completions'
+        elif api_key.startswith('sk-vx') or 'moonshot' in api_key.lower():
+            # Kimi (Moonshot AI)
+            api_base_url = 'api.moonshot.cn'
+            api_path = '/v1/chat/completions'
+        else:
+            # OpenAI 或自定义
+            api_base_url = os.environ.get('API_BASE_URL', 'api.openai.com')
+            if 'groq' in api_base_url.lower():
+                api_path = '/openai/v1/chat/completions'
+            else:
+                api_path = '/v1/chat/completions'
+
         for _ in range(self._samples_per_prompt):
             while True:
                 try:
-                    conn = http.client.HTTPSConnection("api.openai.com")
+                    conn = http.client.HTTPSConnection(api_base_url)
                     payload = json.dumps({
                         "max_tokens": 512,
                         "model": config.api_model,
@@ -218,24 +242,45 @@ class LocalLLM(LLM):
                         ]
                     })
                     headers = {
-                        'Authorization': f"Bearer {os.environ['API_KEY']}",
+                        'Authorization': f"Bearer {api_key}",
                         'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
                         'Content-Type': 'application/json'
                     }
-                    conn.request("POST", "/v1/chat/completions", payload, headers)
+                    conn.request("POST", api_path, payload, headers)
                     res = conn.getresponse()
-                    data = json.loads(res.read().decode("utf-8"))
+                    response_text = res.read().decode("utf-8")
+                    data = json.loads(response_text)
+
+                    # 调试：打印完整响应（仅第一次）
+                    if len(all_samples) == 0:
+                        print(f"\n=== API 响应调试 ===")
+                        print(f"状态码: {res.status}")
+                        print(f"响应内容: {response_text[:500]}...")
+                        print(f"===================\n")
+
+                    # 检查错误
+                    if 'error' in data:
+                        print(f"API 错误: {data['error']}")
+                        break
+
                     response = data['choices'][0]['message']['content']
-                    
+
                     if self._trim:
                         response = _extract_body(response, config)
-                    
+
                     all_samples.append(response)
                     break
 
-                except Exception:
+                except KeyError as e:
+                    print(f"API 调用失败: 缺少字段 {e}")
+                    print(f"完整响应: {response_text if 'response_text' in locals() else 'N/A'}")
+                    break
+                except Exception as e:
+                    print(f"API 调用失败: {e}")
+                    import time
+                    time.sleep(2)  # 等待2秒后重试
                     continue
-        
+
         return all_samples
     
     

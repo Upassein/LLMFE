@@ -69,13 +69,14 @@ class Profiler:
             {'sample time': self._tot_sample_time, 'evaluate time': self._tot_evaluate_time},
             global_step=self._num_samples
         )
-        
+
         # Log the function_str
-        self._writer.add_text(
-            'Best Function String',
-            self._cur_best_program_str,
-            global_step=self._num_samples
-        )
+        if self._cur_best_program_str is not None:
+            self._writer.add_text(
+                'Best Function String',
+                self._cur_best_program_str,
+                global_step=self._num_samples
+            )
 
     def _write_json(self, programs: code_manipulation.Function):
         sample_order = programs.global_sample_nums
