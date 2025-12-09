@@ -232,7 +232,7 @@ class LocalLLM(LLM):
                 try:
                     conn = http.client.HTTPSConnection(api_base_url)
                     payload = json.dumps({
-                        "max_tokens": 512,
+                        "max_tokens": 2048,
                         "model": config.api_model,
                         "messages": [
                             {
