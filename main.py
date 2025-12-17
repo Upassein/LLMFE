@@ -76,35 +76,33 @@ if __name__ == '__main__':
     except:
         filed_meta_data = {}
     meta_data = dict(meta_data, **filed_meta_data)
-    
-    skf = KFold(n_splits=splits, shuffle=True, random_state=42) if is_regression else StratifiedKFold(n_splits=splits, shuffle=True, random_state=42)
 
-    i = 0
-    for train_idx, test_idx in skf.split(X, y):
-        # Load config and parameters
-        from llmfe import config
-        from llmfe import sampler
-        from llmfe import evaluator
-        from llmfe import pipeline
+    # Modified for wind power: Use all data instead of outer 5-fold split
+    # This allows LLM-FE to train on all available data
+    # Original code did nested CV (outer 5-fold + inner 4-fold in spec)
+    # which resulted in only 3000 training samples per fold
 
-        class_config = config.ClassConfig(llm_class=sampler.LocalLLM, sandbox_class=evaluator.LocalSandbox)
-        config = config.Config(use_api = args.use_api,
-                            api_model = args.api_model,)
-        X_train_fold, X_test_fold = X.iloc[train_idx], X.iloc[test_idx]
-        y_train_fold, y_test_fold = y[train_idx], y[test_idx]
-        i +=1
+    # Load config and parameters
+    from llmfe import config
+    from llmfe import sampler
+    from llmfe import evaluator
+    from llmfe import pipeline
 
-        data_dict = {'inputs': X_train_fold, 'outputs': y_train_fold, 'is_cat': is_cat, 'is_regression': is_regression}
-        dataset = {'data': data_dict}
-        log_path = args.log_path + f"_split_{i}"
+    class_config = config.ClassConfig(llm_class=sampler.LocalLLM, sandbox_class=evaluator.LocalSandbox)
+    config = config.Config(use_api = args.use_api,
+                        api_model = args.api_model,)
 
-        pipeline.main(
-            specification=specification,
-            inputs=dataset,
-            config=config,
-            meta_data=meta_data,
-            max_sample_nums=global_max_sample_num*splits,
-            class_config=class_config,
-            # log_dir = f'logs/llama3/{log_path}',
-            log_dir=log_path,
-        )
+    # Use ALL data (no outer split)
+    data_dict = {'inputs': X, 'outputs': y, 'is_cat': is_cat, 'is_regression': is_regression}
+    dataset = {'data': data_dict}
+    log_path = args.log_path
+
+    pipeline.main(
+        specification=specification,
+        inputs=dataset,
+        config=config,
+        meta_data=meta_data,
+        max_sample_nums=global_max_sample_num,  # Changed from global_max_sample_num*splits
+        class_config=class_config,
+        log_dir=log_path,
+    )
