@@ -67,11 +67,15 @@ def evaluate(data: dict):
             params={
                 'objective': 'regression',
                 'metric': 'rmse',
-                'learning_rate': 0.05,
+                'learning_rate': 0.03,  # Smaller learning rate for larger dataset
                 'num_leaves': 31,
+                'max_depth': 8,  # Limit tree depth to prevent overfitting
+                'min_child_samples': 50,  # Require more samples per leaf
                 'feature_fraction': 0.9,
                 'bagging_fraction': 0.8,
                 'bagging_freq': 5,
+                'reg_alpha': 0.1,  # L1 regularization
+                'reg_lambda': 0.1,  # L2 regularization
                 'verbose': -1
             }
         )
@@ -83,8 +87,8 @@ def evaluate(data: dict):
                 y_train=y_train,
                 X_val=X_test,
                 y_val=y_test,
-                num_boost_round=100,
-                early_stopping_rounds=10
+                num_boost_round=500,  # Increased for larger dataset
+                early_stopping_rounds=50
             )
 
             # Predict and calculate RMSE
