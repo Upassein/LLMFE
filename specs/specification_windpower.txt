@@ -132,24 +132,48 @@ def modify_features(df_input) -> pd.DataFrame:
     - Pressure (MSL and surface) for 4 grids
     - Time features: hour_sin/cos, day_of_week_sin/cos, month_sin/cos
 
-    Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW)
+    Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW, installed capacity: 99 MW)
 
-    Domain knowledge:
-    - Wind power is strongly related to wind speed, but the exact relationship is complex
-    - Wind direction affects turbine efficiency (some directions are better than others)
-    - Atmospheric conditions (pressure, humidity) can influence air density and thus power output
-    - Multiple spatial grids capture the spatial variability of weather conditions
-    - Temporal patterns exist (diurnal cycle, seasonal variations)
+    Physics constraints (DO NOT directly implement these formulas, but use them as inspiration):
+    1. Wind Power Law: P ∝ ρ × A × v^n
+       - ρ = air density (function of pressure and temperature)
+       - v = wind speed
+       - n = power exponent (typically between 2 and 4, find optimal value)
+       - A = swept area (constant, can ignore)
 
-    Think creatively about:
-    - Non-linear relationships and polynomial combinations
-    - Interactions between meteorological variables
-    - Spatial patterns across the 4 grids (gradients, consistency, variability)
-    - Circular/periodic nature of direction and time features
-    - Physical constraints (e.g., power cannot exceed installed capacity)
-    - Which features might be redundant or less informative
+    2. Air Density: ρ ∝ P / T
+       - P = atmospheric pressure (we have pressure_msl and surface_pressure)
+       - T = temperature (we don't have it, but humidity correlates with temperature)
 
-    Explore unexpected feature combinations that capture complex physical phenomena.
+    3. Direction Effect: P_actual = P_theoretical × cos^k(angle_misalignment)
+       - Wind direction is circular: 0° = 360°
+       - Some directions are more favorable than others
+       - k = alignment sensitivity (unknown, explore values)
+
+    4. Spatial Coherence: Nearby grids have correlated but not identical conditions
+       - Gradients indicate weather fronts and local terrain effects
+       - Variance across grids indicates turbulence/stability
+
+    Mathematical exploration guidelines:
+    - Polynomial features: Try v^1, v^2, v^3, v^4, v^5 for wind speed
+    - Ratios: Try P_msl/P_surface, humidity/pressure, speed_grid1/speed_grid2, etc.
+    - Products: Try speed × pressure, humidity × speed, etc.
+    - Trigonometric: For circular variables (direction, time), use sin/cos transforms
+    - Logarithmic: Try log(speed + 1), log(pressure), etc.
+    - Interactions: Try speed^n × direction_transform, speed × time_feature, etc.
+    - Spatial stats: Try (max-min), std, mean, gradients across grids
+
+    Feature removal constraints:
+    - Remove at most 40% of original features
+    - Prefer transforming features over deleting them
+    - If you remove a feature, explain why it's redundant with your new features
+
+    Evaluation hints:
+    - Previous experiments showed RMSE = 13.0-13.3 MW with basic features
+    - Features that worked well: polynomial transforms, spatial differences
+    - Features that worked poorly: simple aggregations (max/mean only), removing all direction info
+
+    Your goal: Find the optimal combination of polynomial degree, interaction terms, and spatial patterns.
     """
     import pandas as pd
     import numpy as np
