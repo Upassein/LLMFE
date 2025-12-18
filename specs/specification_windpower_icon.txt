@@ -1,0 +1,227 @@
+"""
+[PREFIX]
+
+###
+<Task>
+Predict wind power generation (MW) from ICON Global meteorological forecast data.
+
+###
+<Features>
+[FEATURES]
+
+###
+<Examples>
+[EXAMPLES]
+[SUFFIX]
+"""
+
+@evaluate.run
+def evaluate(data: dict):
+    """
+    Evaluate the feature transformations on wind power prediction task.
+
+    Uses Wind project's BaseLGBM with time-series K-Fold CV.
+    """
+    import sys
+    from pathlib import Path
+    import pandas as pd
+    import numpy as np
+    from sklearn.model_selection import KFold
+    from sklearn.metrics import mean_squared_error
+
+    # Add Wind project to Python path (modify this path on your server)
+    wind_project_path = '/data/cqj-project/wind-power-forecast-mlflow-1'
+    if wind_project_path not in sys.path:
+        sys.path.insert(0, wind_project_path)
+
+    from core.models.base_lgbm import BaseLGBM
+
+    # Load data
+    inputs, outputs = data['inputs'], data['outputs']
+
+    # === DEBUG: 检查传入数据 ===
+    print(f"[DEBUG] inputs type: {type(inputs)}, shape: {inputs.shape if hasattr(inputs, 'shape') else 'N/A'}")
+    print(f"[DEBUG] outputs type: {type(outputs)}, shape: {outputs.shape if hasattr(outputs, 'shape') else len(outputs)}")
+    if hasattr(outputs, '__iter__'):
+        outputs_array = np.array(list(outputs)[:10])  # 前10个值
+        print(f"[DEBUG] outputs first 10 values: {outputs_array}")
+        print(f"[DEBUG] outputs stats: mean={np.mean(outputs):.2f}, std={np.std(outputs):.2f}, min={np.min(outputs):.2f}, max={np.max(outputs):.2f}")
+
+    # Apply feature transformation
+    X = modify_features(inputs)
+
+    # Convert y to pandas Series if it's numpy array (IMPORTANT for BaseLGBM compatibility)
+    if isinstance(outputs, np.ndarray):
+        y = pd.Series(outputs, index=X.index, name='power')
+    else:
+        y = outputs
+
+    # Encode categorical columns if any
+    for col in X.columns:
+        if X[col].dtype == 'object' or X[col].dtype.name == 'string':
+            X[col] = pd.Categorical(X[col]).codes
+
+    # Handle missing values and infinite values
+    X = X.replace([np.inf, -np.inf], np.nan)
+    X = X.fillna(0)
+
+    # Time-series K-Fold CV (no shuffle to preserve temporal order)
+    kf = KFold(n_splits=4, shuffle=False)
+    scores = []
+
+    for train_idx, test_idx in kf.split(X, y):
+        X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]  # Use .iloc for Series
+
+        # Use Wind project's BaseLGBM
+        model = BaseLGBM(
+            model_name='llmfe_eval',
+            weather_source='combined',
+            params={
+                'objective': 'regression',
+                'metric': 'rmse',
+                'learning_rate': 0.03,  # Smaller learning rate for larger dataset
+                'num_leaves': 31,
+                'max_depth': 8,  # Limit tree depth to prevent overfitting
+                'min_child_samples': 50,  # Require more samples per leaf
+                'feature_fraction': 0.9,
+                'bagging_fraction': 0.8,
+                'bagging_freq': 5,
+                'reg_alpha': 0.1,  # L1 regularization
+                'reg_lambda': 0.1,  # L2 regularization
+                'verbose': -1
+            }
+        )
+
+        try:
+            # Train using Wind project's training method
+            model.train(
+                X_train=X_train,
+                y_train=y_train,
+                X_val=X_test,
+                y_val=y_test,
+                num_boost_round=500,  # Increased for larger dataset
+                early_stopping_rounds=50
+            )
+
+            # Predict and calculate RMSE
+            y_pred = model.predict(X_test)
+            rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+            scores.append(-rmse)  # Negative for maximization
+
+        except Exception as e:
+            # If training fails, return a very bad score
+            print(f"Training error: {e}")
+            scores.append(-999999)
+
+    # Return average score
+    avg_score = np.mean(scores)
+    return avg_score, inputs, outputs
+
+
+@equation.evolve
+def modify_features(df_input) -> pd.DataFrame:
+    """
+    Feature engineering for wind power prediction using ICON Global data.
+
+    IMPORTANT: Always use df_output = df_input.copy() and return df_output at the end!
+
+    Available features (50 features total from ICON_GLOBAL):
+    - Wind speed at 10m, 80m, 120m, 180m for 4 spatial grids
+    - Wind direction at 10m, 80m, 120m, 180m for 4 grids
+    - Relative humidity at 2m for 4 grids
+    - Pressure (MSL and surface) for 4 grids
+    - Cloud cover for 4 grids
+    - Time features: hour_sin/cos, day_of_week_sin/cos, month_sin/cos
+
+    Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW, installed capacity: 99 MW)
+
+    Physics constraints (DO NOT directly implement these formulas, but use them as inspiration):
+    1. Wind Power Law: P ∝ ρ × A × v^n
+       - ρ = air density (function of pressure and temperature)
+       - v = wind speed (we have multi-height data: 10m, 80m, 120m, 180m)
+       - n = power exponent (typically between 2 and 4, find optimal value)
+       - Hub height is typically 80-120m for modern wind turbines
+
+    2. Wind Shear (CRITICAL for ICON data):
+       Wind shear = vertical gradient of wind speed
+       - Shear exponent α: v(h) = v(h_ref) × (h/h_ref)^α
+       - Can calculate shear between 10m-80m, 10m-120m, 80m-180m, 120m-180m
+       - High shear indicates unstable atmosphere and turbulence
+       - Formula example: α = log(v_80m/v_10m) / log(80/10)
+
+    3. Air Density: ρ ∝ P / T
+       - P = atmospheric pressure (we have pressure_msl and surface_pressure)
+       - T = temperature (we don't have it, but humidity and cloud cover correlate)
+
+    4. Direction Effect: P_actual = P_theoretical × cos^k(angle_misalignment)
+       - Wind direction is circular: 0° = 360°
+       - Direction at hub height (80m/120m) is more relevant than 10m
+       - Direction shear also indicates atmospheric stability
+
+    5. Cloud Cover Impact:
+       - Affects surface heating and atmospheric stability
+       - Influences wind profile and turbulence
+
+    Mathematical exploration guidelines for ICON data:
+
+    VERTICAL WIND PROFILE (HIGHEST priority for ICON - 4 heights!):
+    - Wind shear exponent: log(speed_80m/speed_10m) / log(8), log(speed_180m/speed_120m) / log(1.5)
+    - Extrapolated hub-height wind: use shear to estimate wind at exact hub height
+    - Speed ratios: speed_80m/speed_10m, speed_120m/speed_80m, speed_180m/speed_120m
+    - Vertical speed gradient: (speed_180m - speed_10m) / 170
+    - Direction shear: abs(direction_80m - direction_10m), handling 0-360 wrap
+    - Weighted hub-height speed: combine all 4 heights with optimal weights
+    - Upper-level wind (180m): May indicate large-scale atmospheric patterns
+
+    POLYNOMIAL FEATURES:
+    - Try v^2, v^3, v^4 for wind speed at different heights
+    - Focus on 80m, 120m, and 180m (hub height and above)
+
+    PRESSURE AND DENSITY:
+    - P_msl/P_surface ratios (air density proxy)
+    - pressure × speed^n interactions
+    - pressure_gradient across grids
+
+    DIRECTION TRANSFORMS:
+    - sin(direction), cos(direction) for circular encoding at each height
+    - Direction consistency: similarity between direction_120m and direction_180m
+
+    CLOUD AND HUMIDITY:
+    - cloud_cover × humidity (atmospheric stability indicator)
+    - cloud_cover × speed (convective mixing)
+
+    SPATIAL PATTERNS:
+    - Speed gradients across grids at same height
+    - std, mean, max-min across 4 grids at each height
+
+    TEMPORAL INTERACTIONS:
+    - speed × hour_sin/cos (diurnal patterns)
+    - shear_exponent × hour (stability varies with time)
+
+    Feature removal constraints:
+    - Remove at most 40% of original features
+    - Prefer transforming features over deleting them
+    - Keep at least some multi-height information (this is ICON's advantage)
+
+    Evaluation hints:
+    - Previous ECMWF experiments: RMSE = 13.0-13.3 MW
+    - Previous GFS experiments: RMSE = 14.1 MW (worse than ECMWF)
+    - ICON has richest vertical structure (4 heights vs 3 for GFS, 1 for ECMWF)
+    - 180m wind may capture upper-level atmospheric patterns
+    - Wind shear features could capture atmospheric stability better
+    - Hub-height winds (80m-120m) are more relevant than surface (10m)
+
+    Your goal: Leverage ICON's 4-height wind data to discover advanced wind shear and vertical profile features.
+    """
+    import pandas as pd
+    import numpy as np
+
+    # IMPORTANT: Always copy the input DataFrame first
+    df_output = df_input.copy()
+
+    # Add your feature engineering code here
+    # Example: df_output['wind_shear_exponent'] = np.log(df_output['icon_global_grid1_wind_speed_80m'] / (df_output['icon_global_grid1_wind_speed_10m'] + 1e-6)) / np.log(8)
+
+    # IMPORTANT: Always return df_output at the end
+    return df_output
