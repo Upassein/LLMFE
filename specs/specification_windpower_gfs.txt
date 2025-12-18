@@ -73,22 +73,22 @@ def evaluate(data: dict):
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]  # Use .iloc for Series
 
-        # Use Wind project's BaseLGBM
+        # Use Wind project's BaseLGBM with exact same params as model.yaml
         model = BaseLGBM(
             model_name='llmfe_eval',
             weather_source='combined',
             params={
                 'objective': 'regression',
                 'metric': 'rmse',
-                'learning_rate': 0.03,  # Smaller learning rate for larger dataset
+                'boosting_type': 'dart',
                 'num_leaves': 31,
-                'max_depth': 8,  # Limit tree depth to prevent overfitting
-                'min_child_samples': 50,  # Require more samples per leaf
-                'feature_fraction': 0.9,
-                'bagging_fraction': 0.8,
-                'bagging_freq': 5,
-                'reg_alpha': 0.1,  # L1 regularization
-                'reg_lambda': 0.1,  # L2 regularization
+                'max_depth': 60,
+                'learning_rate': 0.05,
+                'n_estimators': 500,
+                'min_child_samples': 20,
+                'subsample': 0.8,
+                'subsample_freq': 5,
+                'colsample_bytree': 0.8,
                 'verbose': -1
             }
         )
@@ -100,7 +100,7 @@ def evaluate(data: dict):
                 y_train=y_train,
                 X_val=X_test,
                 y_val=y_test,
-                num_boost_round=500,  # Increased for larger dataset
+                num_boost_round=500,
                 early_stopping_rounds=50
             )
 
