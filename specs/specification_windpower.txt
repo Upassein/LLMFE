@@ -39,6 +39,14 @@ def evaluate(data: dict):
     # Load data
     inputs, outputs = data['inputs'], data['outputs']
 
+    # === DEBUG: 检查传入数据 ===
+    print(f"[DEBUG] inputs type: {type(inputs)}, shape: {inputs.shape if hasattr(inputs, 'shape') else 'N/A'}")
+    print(f"[DEBUG] outputs type: {type(outputs)}, shape: {outputs.shape if hasattr(outputs, 'shape') else len(outputs)}")
+    if hasattr(outputs, '__iter__'):
+        outputs_array = np.array(list(outputs)[:10])  # 前10个值
+        print(f"[DEBUG] outputs first 10 values: {outputs_array}")
+        print(f"[DEBUG] outputs stats: mean={np.mean(outputs):.2f}, std={np.std(outputs):.2f}, min={np.min(outputs):.2f}, max={np.max(outputs):.2f}")
+
     # Apply feature transformation
     X = modify_features(inputs)
 
