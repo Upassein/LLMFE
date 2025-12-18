@@ -38,7 +38,8 @@ if __name__ == '__main__':
     problem_name = args.problem_name
     label_encoder = preprocessing.LabelEncoder()
     is_regression = False
-    if problem_name in ['forest-fires', 'housing', 'insurance', 'bike', 'wine', 'crab']:
+    # Add wind power problem to regression list
+    if problem_name in ['forest-fires', 'housing', 'insurance', 'bike', 'wine', 'crab'] or 'windpower' in problem_name:
         is_regression = True
 
     # Load data observations
