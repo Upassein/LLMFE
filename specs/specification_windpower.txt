@@ -126,19 +126,30 @@ def modify_features(df_input) -> pd.DataFrame:
 
     IMPORTANT: Always use df_output = df_input.copy() and return df_output at the end!
 
-    Available features:
-    - Wind speed and direction at 10m for 4 grids (ecmwf_ifs025_grid{1-4}_wind_speed_10m, wind_direction_10m)
-    - Relative humidity at 2m for 4 grids (ecmwf_ifs025_grid{1-4}_relative_humidity_2m)
-    - Pressure MSL and surface pressure for 4 grids
-    - Time features (hour_sin, hour_cos, day_of_week_sin, day_of_week_cos, month_sin, month_cos)
+    Available features (26 features total):
+    - Wind speed and direction at 10m for 4 spatial grids around the wind farm
+    - Relative humidity at 2m for 4 grids
+    - Pressure (MSL and surface) for 4 grids
+    - Time features: hour_sin/cos, day_of_week_sin/cos, month_sin/cos
 
-    Suggested transformations:
-    - Wind power potential: wind_speed^3 (cubic relationship with power, KEY FEATURE!)
-    - Wind direction components: sin(direction), cos(direction) (for circular feature)
-    - Pressure gradients: differences between grids
-    - Cross-grid features: mean, std, max, min across grids
-    - Time-weather interactions: hour_sin * wind_speed
-    - Non-linear transforms: log, square, cube
+    Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW)
+
+    Domain knowledge:
+    - Wind power is strongly related to wind speed, but the exact relationship is complex
+    - Wind direction affects turbine efficiency (some directions are better than others)
+    - Atmospheric conditions (pressure, humidity) can influence air density and thus power output
+    - Multiple spatial grids capture the spatial variability of weather conditions
+    - Temporal patterns exist (diurnal cycle, seasonal variations)
+
+    Think creatively about:
+    - Non-linear relationships and polynomial combinations
+    - Interactions between meteorological variables
+    - Spatial patterns across the 4 grids (gradients, consistency, variability)
+    - Circular/periodic nature of direction and time features
+    - Physical constraints (e.g., power cannot exceed installed capacity)
+    - Which features might be redundant or less informative
+
+    Explore unexpected feature combinations that capture complex physical phenomena.
     """
     import pandas as pd
     import numpy as np
