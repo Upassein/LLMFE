@@ -41,7 +41,12 @@ def evaluate(data: dict):
 
     # Apply feature transformation
     X = modify_features(inputs)
-    y = outputs
+
+    # Convert y to pandas Series if it's numpy array (IMPORTANT for BaseLGBM compatibility)
+    if isinstance(outputs, np.ndarray):
+        y = pd.Series(outputs, index=X.index, name='power')
+    else:
+        y = outputs
 
     # Encode categorical columns if any
     for col in X.columns:
@@ -58,7 +63,7 @@ def evaluate(data: dict):
 
     for train_idx, test_idx in kf.split(X, y):
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y[train_idx], y[test_idx]
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]  # Use .iloc for Series
 
         # Use Wind project's BaseLGBM
         model = BaseLGBM(
