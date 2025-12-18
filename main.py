@@ -20,12 +20,13 @@ parser.add_argument('--spec_path', type=str)
 parser.add_argument('--log_path', type=str, default="./logs/oscillator1")
 parser.add_argument('--problem_name', type=str, default="oscillator1")
 parser.add_argument('--run_id', type=int, default=1)
+parser.add_argument('--max_sample_nums', type=int, default=20, help='Maximum number of feature engineering samples to generate')
 args = parser.parse_args()
 
 
 if __name__ == '__main__':
     # Define the maximum number of iterations
-    global_max_sample_num = 20
+    global_max_sample_num = args.max_sample_nums
     splits = 5
     seed = 42
     # Load prompt specification
