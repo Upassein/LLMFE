@@ -127,15 +127,14 @@ def modify_features(df_input) -> pd.DataFrame:
     IMPORTANT: Always use df_output = df_input.copy() and return df_output at the end!
 
     Available features:
-    - Wind U/V components at 10m for 4 grids (ecmwf_ifs025_grid{1-4}_wind_u_10m, wind_v_10m)
+    - Wind speed and direction at 10m for 4 grids (ecmwf_ifs025_grid{1-4}_wind_speed_10m, wind_direction_10m)
     - Relative humidity at 2m for 4 grids (ecmwf_ifs025_grid{1-4}_relative_humidity_2m)
     - Pressure MSL and surface pressure for 4 grids
     - Time features (hour_sin, hour_cos, day_of_week_sin, day_of_week_cos, month_sin, month_cos)
 
     Suggested transformations:
-    - Wind speed from U/V: sqrt(u^2 + v^2)
-    - Wind direction: arctan2(v, u)
-    - Wind power potential: wind_speed^3 (cubic relationship with power)
+    - Wind power potential: wind_speed^3 (cubic relationship with power, KEY FEATURE!)
+    - Wind direction components: sin(direction), cos(direction) (for circular feature)
     - Pressure gradients: differences between grids
     - Cross-grid features: mean, std, max, min across grids
     - Time-weather interactions: hour_sin * wind_speed
