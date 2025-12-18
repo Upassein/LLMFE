@@ -165,39 +165,47 @@ def modify_features(df_input) -> pd.DataFrame:
 
     Mathematical exploration guidelines for ICON data:
 
+    CRITICAL: Column names use 'm' suffix for height!
+    Correct examples:
+    - icon_global_grid1_wind_speed_10m (NOT _10)
+    - icon_global_grid1_wind_speed_80m (NOT _80)
+    - icon_global_grid1_wind_direction_120m (NOT _120)
+
+    When using f-strings with heights, ALWAYS append 'm':
+    Example: df_output[f'icon_global_grid{i}_wind_speed_{height}m']
+
+    DO NOT reference non-existent columns like 'hub_height' - it does not exist in the data!
+
     VERTICAL WIND PROFILE (HIGHEST priority for ICON - 4 heights!):
     - Wind shear exponent: log(speed_80m/speed_10m) / log(8), log(speed_180m/speed_120m) / log(1.5)
-    - Extrapolated hub-height wind: use shear to estimate wind at exact hub height
     - Speed ratios: speed_80m/speed_10m, speed_120m/speed_80m, speed_180m/speed_120m
     - Vertical speed gradient: (speed_180m - speed_10m) / 170
-    - Direction shear: abs(direction_80m - direction_10m), handling 0-360 wrap
-    - Weighted hub-height speed: combine all 4 heights with optimal weights
+    - Direction shear: calculate difference between directions at different heights
+    - Weighted hub-height speed: 0.1*v10m + 0.4*v80m + 0.4*v120m + 0.1*v180m
     - Upper-level wind (180m): May indicate large-scale atmospheric patterns
 
     POLYNOMIAL FEATURES:
-    - Try v^2, v^3, v^4 for wind speed at different heights
-    - Focus on 80m, 120m, and 180m (hub height and above)
+    - Try v^2, v^3 for wind speed at 80m, 120m, 180m
+    - Focus on hub height range (80m-120m)
 
     PRESSURE AND DENSITY:
     - P_msl/P_surface ratios (air density proxy)
     - pressure × speed^n interactions
-    - pressure_gradient across grids
 
     DIRECTION TRANSFORMS:
     - sin(direction), cos(direction) for circular encoding at each height
-    - Direction consistency: similarity between direction_120m and direction_180m
-
-    CLOUD AND HUMIDITY:
-    - cloud_cover × humidity (atmospheric stability indicator)
-    - cloud_cover × speed (convective mixing)
+    - Only encode ONE height (e.g., 80m) to avoid too many features
 
     SPATIAL PATTERNS:
-    - Speed gradients across grids at same height
-    - std, mean, max-min across 4 grids at each height
+    - Speed std/mean/max-min across 4 grids at same height
+    - Use axis=1 for row-wise operations!
 
     TEMPORAL INTERACTIONS:
     - speed × hour_sin/cos (diurnal patterns)
-    - shear_exponent × hour (stability varies with time)
+
+    FEATURE REMOVAL:
+    - Remove at most 40% of original 50 features
+    - Prefer transforming over deleting
 
     Feature removal constraints:
     - Remove at most 40% of original features
