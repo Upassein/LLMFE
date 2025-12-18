@@ -134,46 +134,48 @@ def modify_features(df_input) -> pd.DataFrame:
 
     Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW, installed capacity: 99 MW)
 
-    Physics constraints (DO NOT directly implement these formulas, but use them as inspiration):
-    1. Wind Power Law: P ∝ ρ × A × v^n
-       - ρ = air density (function of pressure and temperature)
-       - v = wind speed
-       - n = power exponent (typically between 2 and 4, find optimal value)
-       - A = swept area (constant, can ignore)
+    CRITICAL RULES:
+    1. DO NOT delete or remove any original features - only ADD new features
+    2. Focus on simple, interpretable transformations
+    3. Start with basic features before trying complex combinations
 
-    2. Air Density: ρ ∝ P / T
-       - P = atmospheric pressure (we have pressure_msl and surface_pressure)
-       - T = temperature (we don't have it, but humidity correlates with temperature)
+    Helpful domain knowledge (simplified):
+    - Wind power increases with wind speed (roughly proportional to speed^3)
+    - Different wind directions have different power outputs
+    - Atmospheric pressure affects air density
+    - Higher humidity correlates with lower air density
+    - Spatial differences across grids indicate wind patterns
 
-    3. Direction Effect: P_actual = P_theoretical × cos^k(angle_misalignment)
-       - Wind direction is circular: 0° = 360°
-       - Some directions are more favorable than others
-       - k = alignment sensitivity (unknown, explore values)
+    Suggested feature ideas (try simple ones first):
 
-    4. Spatial Coherence: Nearby grids have correlated but not identical conditions
-       - Gradients indicate weather fronts and local terrain effects
-       - Variance across grids indicates turbulence/stability
+    BASIC TRANSFORMATIONS:
+    - Wind speed powers: speed^2, speed^3 (wind power law)
+    - Direction encoding: sin(direction), cos(direction) (handle circular variable)
+    - Pressure ratio: pressure_msl / surface_pressure (air density proxy)
 
-    Mathematical exploration guidelines:
-    - Polynomial features: Try v^1, v^2, v^3, v^4, v^5 for wind speed
-    - Ratios: Try P_msl/P_surface, humidity/pressure, speed_grid1/speed_grid2, etc.
-    - Products: Try speed × pressure, humidity × speed, etc.
-    - Trigonometric: For circular variables (direction, time), use sin/cos transforms
-    - Logarithmic: Try log(speed + 1), log(pressure), etc.
-    - Interactions: Try speed^n × direction_transform, speed × time_feature, etc.
-    - Spatial stats: Try (max-min), std, mean, gradients across grids
+    INTERACTIONS:
+    - Speed × direction: speed * sin(direction), speed * cos(direction)
+    - Speed × time: speed * hour_sin, speed * hour_cos (diurnal patterns)
+    - Speed × humidity: captures air density effect
 
-    Feature removal constraints:
-    - Remove at most 40% of original features
-    - Prefer transforming features over deleting them
-    - If you remove a feature, explain why it's redundant with your new features
+    SPATIAL FEATURES:
+    - Average wind speed across grids: mean(speed_grid1, speed_grid2, speed_grid3, speed_grid4)
+    - Wind speed variance: std across grids (turbulence indicator)
+    - Pressure differences: pressure_grid1 - pressure_grid2 (weather fronts)
 
-    Evaluation hints:
-    - Previous experiments showed RMSE = 13.0-13.3 MW with basic features
-    - Features that worked well: polynomial transforms, spatial differences
-    - Features that worked poorly: simple aggregations (max/mean only), removing all direction info
+    BINNING (categorize continuous variables):
+    - Wind speed categories: speed_category = speed // 2 (group every 2 m/s)
+    - Hour groups: hour_period = hour // 6 (morning/afternoon/evening/night)
 
-    Your goal: Find the optimal combination of polynomial degree, interaction terms, and spatial patterns.
+    IMPORTANT:
+    - Keep all original 26 features unchanged
+    - Add only 5-10 new features per iteration
+    - Avoid overly complex transformations (no nested conditions, no log of log, etc.)
+    - Test simple ideas first: speed^2 and speed^3 are often most useful
+
+    Previous results:
+    - Baseline RMSE: 13.14 MW
+    - Best with basic polynomials: 12.94 MW (1.5% improvement)
     """
     import pandas as pd
     import numpy as np

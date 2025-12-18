@@ -136,81 +136,63 @@ def modify_features(df_input) -> pd.DataFrame:
 
     Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW, installed capacity: 99 MW)
 
-    Physics constraints (DO NOT directly implement these formulas, but use them as inspiration):
-    1. Wind Power Law: P ∝ ρ × A × v^n
-       - ρ = air density (function of pressure and temperature)
-       - v = wind speed (we have multi-height data: 10m, 80m, 120m, 180m)
-       - n = power exponent (typically between 2 and 4, find optimal value)
-       - Hub height is typically 80-120m for modern wind turbines
+    CRITICAL RULES:
+    1. DO NOT delete or remove any original 50 features - only ADD new features
+    2. Column names use 'm' suffix: wind_speed_80m (NOT _80)
+    3. Focus on simple transformations first
+    4. ICON advantage: 4 heights (10m, 80m, 120m, 180m)
 
-    2. Wind Shear (CRITICAL for ICON data):
-       Wind shear = vertical gradient of wind speed
-       - Shear exponent α: v(h) = v(h_ref) × (h/h_ref)^α
-       - Can calculate shear between 10m-80m, 10m-120m, 80m-180m, 120m-180m
-       - High shear indicates unstable atmosphere and turbulence
-       - Formula example: α = log(v_80m/v_10m) / log(80/10)
+    IMPORTANT NAMING:
+    Correct: icon_global_grid1_wind_speed_10m (with 'm')
+    Wrong: icon_global_grid1_wind_speed_10 (missing 'm')
 
-    3. Air Density: ρ ∝ P / T
-       - P = atmospheric pressure (we have pressure_msl and surface_pressure)
-       - T = temperature (we don't have it, but humidity and cloud cover correlate)
+    Simplified domain knowledge:
+    - Wind turbines operate at 80-120m height (hub height)
+    - Wind power ∝ speed^3 (cubic relationship)
+    - Wind speed increases with height
+    - 180m wind shows large-scale weather patterns
 
-    4. Direction Effect: P_actual = P_theoretical × cos^k(angle_misalignment)
-       - Wind direction is circular: 0° = 360°
-       - Direction at hub height (80m/120m) is more relevant than 10m
-       - Direction shear also indicates atmospheric stability
+    Suggested features (start simple):
 
-    5. Cloud Cover Impact:
-       - Affects surface heating and atmospheric stability
-       - Influences wind profile and turbulence
+    HUB HEIGHT FOCUS:
+    - Hub average: (speed_80m + speed_120m) / 2
+    - Power at 80m: speed_80m^2, speed_80m^3
+    - Power at 120m: speed_120m^2, speed_120m^3
+    - Direction at 80m: sin(direction_80m * 3.14159/180), cos(direction_80m * 3.14159/180)
 
-    Mathematical exploration guidelines for ICON data:
+    SIMPLE VERTICAL PATTERNS:
+    - Speed increase: speed_80m - speed_10m
+    - Speed ratio: speed_80m / (speed_10m + 0.1)
+    - Upper wind: speed_180m (shows weather systems)
 
-    CRITICAL: Column names use 'm' suffix for height!
-    Correct examples:
-    - icon_global_grid1_wind_speed_10m (NOT _10)
-    - icon_global_grid1_wind_speed_80m (NOT _80)
-    - icon_global_grid1_wind_direction_120m (NOT _120)
+    BASIC INTERACTIONS:
+    - Speed × direction: speed_80m * sin(direction_80m * 3.14159/180)
+    - Speed × time: speed_80m * hour_sin
+    - Pressure ratio: pressure_msl / surface_pressure
 
-    When using f-strings with heights, ALWAYS append 'm':
-    Example: df_output[f'icon_global_grid{i}_wind_speed_{height}m']
+    SPATIAL AGGREGATIONS (use axis=1):
+    - Mean at 80m: df[[grid1_80m, grid2_80m, grid3_80m, grid4_80m]].mean(axis=1)
+    - Variance at 80m: df[[grid1_80m, grid2_80m, grid3_80m, grid4_80m]].std(axis=1)
 
-    DO NOT reference non-existent columns like 'hub_height' - it does not exist in the data!
+    EXAMPLE (copy this):
+    ```python
+    df_output = df_input.copy()
+    df_output['hub_avg'] = (df_output['icon_global_grid1_wind_speed_80m'] +
+                            df_output['icon_global_grid1_wind_speed_120m']) / 2
+    df_output['power_80m'] = df_output['icon_global_grid1_wind_speed_80m'] ** 3
+    return df_output
+    ```
 
-    VERTICAL WIND PROFILE (HIGHEST priority for ICON - 4 heights!):
-    - Wind shear exponent: log(speed_80m/speed_10m) / log(8), log(speed_180m/speed_120m) / log(1.5)
-    - Speed ratios: speed_80m/speed_10m, speed_120m/speed_80m, speed_180m/speed_120m
-    - Vertical speed gradient: (speed_180m - speed_10m) / 170
-    - Direction shear: calculate difference between directions at different heights
-    - Weighted hub-height speed: 0.1*v10m + 0.4*v80m + 0.4*v120m + 0.1*v180m
-    - Upper-level wind (180m): May indicate large-scale atmospheric patterns
+    IMPORTANT:
+    - Keep ALL 50 original features
+    - Add 5-10 new features per iteration
+    - Start with speed^2, speed^3 at 80m/120m
+    - Use column names with 'm' suffix!
 
-    POLYNOMIAL FEATURES:
-    - Try v^2, v^3 for wind speed at 80m, 120m, 180m
-    - Focus on hub height range (80m-120m)
-
-    PRESSURE AND DENSITY:
-    - P_msl/P_surface ratios (air density proxy)
-    - pressure × speed^n interactions
-
-    DIRECTION TRANSFORMS:
-    - sin(direction), cos(direction) for circular encoding at each height
-    - Only encode ONE height (e.g., 80m) to avoid too many features
-
-    SPATIAL PATTERNS:
-    - Speed std/mean/max-min across 4 grids at same height
-    - Use axis=1 for row-wise operations!
-
-    TEMPORAL INTERACTIONS:
-    - speed × hour_sin/cos (diurnal patterns)
-
-    FEATURE REMOVAL:
-    - Remove at most 40% of original 50 features
-    - Prefer transforming over deleting
-
-    Feature removal constraints:
-    - Remove at most 40% of original features
-    - Prefer transforming features over deleting them
-    - Keep at least some multi-height information (this is ICON's advantage)
+    Previous results:
+    - Baseline RMSE: 13.20 MW (best baseline!)
+    - Previous attempts failed due to naming errors
+    - Target: Beat ECMWF's 12.94 MW
 
     Evaluation hints:
     - Previous ECMWF experiments: RMSE = 13.0-13.3 MW
