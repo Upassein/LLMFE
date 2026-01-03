@@ -58,9 +58,27 @@ def evaluate(data: dict):
     # We need to reload the full 26-col data for applying to all grids
     template_inputs, outputs = data['inputs'], data['outputs']
 
+    # Detect weather source from template column names
+    # template has columns like: wind_speed_10m, wind_speed_80m (gfs/icon), etc.
+    weather_source = None
+    if 'wind_speed_80m' in template_inputs.columns:
+        if 'wind_speed_180m' in template_inputs.columns:
+            weather_source = 'icon_global'
+        else:
+            weather_source = 'gfs_global'
+    else:
+        weather_source = 'ecmwf_ifs025'
+
     # Re-load the full multi-grid data from CSV
     # This ensures we always have access to all 4 grids
-    data_path = '/data/cqj-project/LLM-FE/LLMFE/data/windpower_SD_W_B_ecmwf_ifs025.csv'
+    import os
+    data_dir = '/data/cqj-project/LLM-FE/LLMFE/data'
+    data_path = os.path.join(data_dir, f'windpower_SD_W_B_{weather_source}.csv')
+
+    if not os.path.exists(data_path):
+        # Fallback to current directory
+        data_path = f'./data/windpower_SD_W_B_{weather_source}.csv'
+
     full_df = pd.read_csv(data_path)
 
     # Extract features and target
@@ -165,8 +183,8 @@ def evaluate(data: dict):
 
     # Return average score
     avg_score = np.mean(scores)
-    # Return template (11 cols) so LLM sees correct column names in [EXAMPLES]
-    return avg_score, template_inputs, outputs
+    # Return engineered template so LLM sees both original and new features in [EXAMPLES]
+    return avg_score, engineered_template, outputs
 
 
 @equation.evolve
