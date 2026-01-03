@@ -35,18 +35,11 @@ def extract_grid_template(df_full: pd.DataFrame, grid_id: int = 1, source: str =
 
     # 自动检测气象源
     if source is None:
-        print(f"[DEBUG grid_template] df_full.shape: {df_full.shape}")
-        print(f"[DEBUG grid_template] df_full.columns (first 5): {df_full.columns[:5].tolist()}")
-        print(f"[DEBUG grid_template] df_full.columns type: {type(df_full.columns)}")
-
         for col in df_full.columns:
             if '_grid' in col:
                 source = col.split('_grid')[0]
-                print(f"[DEBUG grid_template] 检测到气象源: {source}")
                 break
-
         if source is None:
-            print(f"[DEBUG grid_template] 所有列名: {df_full.columns.tolist()}")
             raise ValueError("无法自动检测气象源，请手动指定source参数")
 
     # 查找该grid的所有气象列
