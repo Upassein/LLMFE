@@ -81,9 +81,10 @@ def evaluate(data: dict):
 
     full_df = pd.read_csv(data_path)
 
-    # Extract features and target
-    full_inputs = full_df.drop(columns=['target'])
-    full_outputs = full_df['target']
+    # Extract features and target (last column)
+    target_col = full_df.columns[-1]  # 'power' or 'target'
+    full_inputs = full_df.drop(columns=[target_col])
+    full_outputs = full_df[target_col]
 
     # Verify shape matches
     assert len(full_inputs) == len(template_inputs), f"Data length mismatch: {len(full_inputs)} vs {len(template_inputs)}"
