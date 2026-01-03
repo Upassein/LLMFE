@@ -29,12 +29,27 @@ for path in [WIND_POWER_PATH, LLMFE_PATH]:
         sys.path.insert(0, path)
         print(f"  添加路径: {path}")
 
+print(f"\n  当前sys.path前3项:")
+for i, p in enumerate(sys.path[:3]):
+    print(f"    [{i}] {p}")
+
+# 检查LLMFE utils目录
+import os
+utils_dir = os.path.join(LLMFE_PATH, 'utils')
+print(f"\n  检查utils目录: {utils_dir}")
+if os.path.exists(utils_dir):
+    print(f"    [存在] utils目录")
+    utils_files = os.listdir(utils_dir)
+    print(f"    文件列表: {utils_files}")
+else:
+    print(f"    [不存在] utils目录")
+
 # 尝试导入BaseLGBM
 try:
-    from models.base_lgbm import BaseLGBM
-    print("  [成功] 导入 BaseLGBM")
+    from core.models.base_lgbm import BaseLGBM
+    print("\n  [成功] 导入 BaseLGBM")
 except Exception as e:
-    print(f"  [失败] 导入 BaseLGBM: {e}")
+    print(f"\n  [失败] 导入 BaseLGBM: {e}")
     traceback.print_exc()
     sys.exit(1)
 
@@ -45,6 +60,13 @@ try:
 except Exception as e:
     print(f"  [失败] 导入 grid_template: {e}")
     traceback.print_exc()
+    print("\n  尝试直接导入utils包...")
+    try:
+        import utils
+        print(f"    utils包位置: {utils.__file__}")
+        print(f"    utils包内容: {dir(utils)}")
+    except Exception as e2:
+        print(f"    导入utils包也失败: {e2}")
     sys.exit(1)
 
 # ============================================================================
