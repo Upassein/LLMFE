@@ -95,7 +95,15 @@ if __name__ == '__main__':
                         api_model = args.api_model,)
 
     # Use ALL data (no outer split)
-    data_dict = {'inputs': X, 'outputs': y, 'is_cat': is_cat, 'is_regression': is_regression}
+    # For windpower: extract template (grid1) to pass to LLM-FE
+    # Specification will reload full data internally
+    if 'windpower' in problem_name:
+        from utils.grid_template import extract_grid_template
+        X_template = extract_grid_template(X, grid_id=1, source=None)
+        data_dict = {'inputs': X_template, 'outputs': y, 'is_cat': is_cat, 'is_regression': is_regression}
+    else:
+        data_dict = {'inputs': X, 'outputs': y, 'is_cat': is_cat, 'is_regression': is_regression}
+
     dataset = {'data': data_dict}
     log_path = args.log_path
 

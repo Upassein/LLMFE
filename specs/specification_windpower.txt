@@ -15,9 +15,6 @@ Predict wind power generation (MW) from meteorological forecast data.
 [SUFFIX]
 """
 
-# Global variable to store original multi-grid data
-_ORIGINAL_INPUTS = None
-
 @evaluate.run
 def evaluate(data: dict):
     """
@@ -57,33 +54,37 @@ def evaluate(data: dict):
     )
 
     # Load data
-    inputs, outputs = data['inputs'], data['outputs']
+    # inputs from LLM-FE is template (11 cols without grid prefix)
+    # We need to reload the full 26-col data for applying to all grids
+    template_inputs, outputs = data['inputs'], data['outputs']
 
-    # Save original multi-grid data on first call
-    global _ORIGINAL_INPUTS
-    if _ORIGINAL_INPUTS is None:
-        # First call: inputs has grid columns
-        if any('_grid' in col for col in inputs.columns):
-            _ORIGINAL_INPUTS = inputs.copy()
+    # Re-load the full multi-grid data from CSV
+    # This ensures we always have access to all 4 grids
+    data_path = '/data/cqj-project/LLM-FE/LLMFE/data/windpower_SD_W_B_ecmwf_ifs025.csv'
+    full_df = pd.read_csv(data_path)
 
-    # Use original data for grid operations
-    original_inputs = _ORIGINAL_INPUTS if _ORIGINAL_INPUTS is not None else inputs
+    # Extract features and target
+    full_inputs = full_df.drop(columns=['target'])
+    full_outputs = full_df['target']
 
-    # === Step 1: Extract grid1 as template (auto-detect source) ===
-    template_df = extract_grid_template(original_inputs, grid_id=1, source=None)
-    # template_df: N weather features + 6 time features
-    # N depends on source: ecmwf(5), gfs(9), icon(11)
+    # Verify shape matches
+    assert len(full_inputs) == len(template_inputs), f"Data length mismatch: {len(full_inputs)} vs {len(template_inputs)}"
+
+    # === Step 1: Template is already provided by LLM-FE ===
+    # template_inputs: 11 columns (5 weather + 6 time features)
+    # No need to extract, it's already the template
 
     # === Step 2: Apply LLM's feature engineering to template ===
-    engineered_template = modify_features(template_df)
-    # engineered_template: (N+6) + M columns (original + new features)
+    engineered_template = modify_features(template_inputs)
+    # engineered_template: 11 + M columns (original + new features)
 
     # === Step 3: Apply engineered template to all 4 grids ===
     all_grids_features = []
+
     for grid_id in [1, 2, 3, 4]:
         grid_features = apply_template_to_grid(
             template_df=engineered_template,
-            original_inputs=original_inputs,
+            original_inputs=full_inputs,  # Use full 26-col data
             grid_id=grid_id,
             modify_features_func=modify_features,
             source=None  # Auto-detect
@@ -91,9 +92,9 @@ def evaluate(data: dict):
         all_grids_features.append(grid_features)
 
     # === Step 4: Extract time features (global, not grid-specific) ===
-    time_features = original_inputs[['hour_sin', 'hour_cos',
-                                     'day_of_week_sin', 'day_of_week_cos',
-                                     'month_sin', 'month_cos']]
+    time_features = full_inputs[['hour_sin', 'hour_cos',
+                                 'day_of_week_sin', 'day_of_week_cos',
+                                 'month_sin', 'month_cos']]
 
     # === Step 5: Merge all grids + time features ===
     X = merge_all_grids(all_grids_features, time_features)
@@ -164,10 +165,8 @@ def evaluate(data: dict):
 
     # Return average score
     avg_score = np.mean(scores)
-    # IMPORTANT: Return engineered_template (single grid with features) to LLM-FE
-    # This ensures [EXAMPLES] shows the correct column names (without grid prefix)
-    # and includes the engineered features for LLM to learn from
-    return avg_score, engineered_template, outputs
+    # Return template (11 cols) so LLM sees correct column names in [EXAMPLES]
+    return avg_score, template_inputs, outputs
 
 
 @equation.evolve

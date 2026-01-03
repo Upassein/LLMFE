@@ -110,6 +110,10 @@ def apply_template_to_grid(
                 source = col.split('_grid')[0]
                 break
         if source is None:
+            # 调试信息
+            print(f"[ERROR] 无法自动检测气象源")
+            print(f"  original_inputs.shape: {original_inputs.shape}")
+            print(f"  original_inputs.columns: {original_inputs.columns.tolist()}")
             raise ValueError("无法自动检测气象源，请手动指定source参数")
 
     # 1. 提取该grid的原始数据（11列）
