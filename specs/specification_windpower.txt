@@ -56,6 +56,11 @@ def evaluate(data: dict):
     # Load data
     inputs, outputs = data['inputs'], data['outputs']
 
+    # === DEBUG: 检查inputs ===
+    print(f"[DEBUG] inputs type: {type(inputs)}, shape: {inputs.shape}")
+    print(f"[DEBUG] inputs columns: {inputs.columns.tolist()}")
+    print(f"[DEBUG] 第一列: {inputs.columns[0]}")
+
     # === Step 1: Extract grid1 as template (auto-detect source) ===
     template_df = extract_grid_template(inputs, grid_id=1, source=None)
     # template_df: N weather features + 6 time features

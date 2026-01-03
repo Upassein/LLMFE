@@ -74,7 +74,24 @@ except Exception as e:
 # ============================================================================
 print("\n[步骤2] 加载数据...")
 
-DATA_PATH = '/data/cqj-project/wind-power-forecast-mlflow-1/data/sdwpf_bw_ss_cleaned_all_sources_with_target.csv'
+# 先列出data目录下的文件
+data_dir = '/data/cqj-project/wind-power-forecast-mlflow-1/data'
+print(f"  检查data目录: {data_dir}")
+if os.path.exists(data_dir):
+    data_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]
+    print(f"  找到CSV文件: {data_files}")
+
+    # 找到包含 all_sources 的文件
+    all_sources_files = [f for f in data_files if 'all_sources' in f.lower()]
+    if all_sources_files:
+        DATA_PATH = os.path.join(data_dir, all_sources_files[0])
+        print(f"  使用数据文件: {DATA_PATH}")
+    else:
+        print(f"  [失败] 找不到包含 'all_sources' 的CSV文件")
+        sys.exit(1)
+else:
+    print(f"  [失败] data目录不存在")
+    sys.exit(1)
 
 try:
     df = pd.read_csv(DATA_PATH)
