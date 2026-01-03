@@ -15,6 +15,9 @@ Predict wind power generation (MW) from meteorological forecast data.
 [SUFFIX]
 """
 
+# Global variable to store original multi-grid data
+_ORIGINAL_INPUTS = None
+
 @evaluate.run
 def evaluate(data: dict):
     """
@@ -56,8 +59,18 @@ def evaluate(data: dict):
     # Load data
     inputs, outputs = data['inputs'], data['outputs']
 
+    # Save original multi-grid data on first call
+    global _ORIGINAL_INPUTS
+    if _ORIGINAL_INPUTS is None:
+        # First call: inputs has grid columns
+        if any('_grid' in col for col in inputs.columns):
+            _ORIGINAL_INPUTS = inputs.copy()
+
+    # Use original data for grid operations
+    original_inputs = _ORIGINAL_INPUTS if _ORIGINAL_INPUTS is not None else inputs
+
     # === Step 1: Extract grid1 as template (auto-detect source) ===
-    template_df = extract_grid_template(inputs, grid_id=1, source=None)
+    template_df = extract_grid_template(original_inputs, grid_id=1, source=None)
     # template_df: N weather features + 6 time features
     # N depends on source: ecmwf(5), gfs(9), icon(11)
 
@@ -70,7 +83,7 @@ def evaluate(data: dict):
     for grid_id in [1, 2, 3, 4]:
         grid_features = apply_template_to_grid(
             template_df=engineered_template,
-            original_inputs=inputs,
+            original_inputs=original_inputs,
             grid_id=grid_id,
             modify_features_func=modify_features,
             source=None  # Auto-detect
@@ -78,9 +91,9 @@ def evaluate(data: dict):
         all_grids_features.append(grid_features)
 
     # === Step 4: Extract time features (global, not grid-specific) ===
-    time_features = inputs[['hour_sin', 'hour_cos',
-                            'day_of_week_sin', 'day_of_week_cos',
-                            'month_sin', 'month_cos']]
+    time_features = original_inputs[['hour_sin', 'hour_cos',
+                                     'day_of_week_sin', 'day_of_week_cos',
+                                     'month_sin', 'month_cos']]
 
     # === Step 5: Merge all grids + time features ===
     X = merge_all_grids(all_grids_features, time_features)
@@ -151,12 +164,29 @@ def evaluate(data: dict):
 
     # Return average score
     avg_score = np.mean(scores)
-    return avg_score, inputs, outputs
+    # IMPORTANT: Return engineered_template (single grid with features) to LLM-FE
+    # This ensures [EXAMPLES] shows the correct column names (without grid prefix)
+    # and includes the engineered features for LLM to learn from
+    return avg_score, engineered_template, outputs
 
 
 @equation.evolve
 def modify_features(df_input) -> pd.DataFrame:
     """
+    Feature engineering for wind power prediction.
+
+    IMPORTANT: Input is from a SINGLE grid point with simplified column names:
+    - wind_speed_10m (NOT ecmwf_ifs025_grid1_wind_speed_10m)
+    - wind_direction_10m
+    - relative_humidity_2m
+    - pressure_msl
+    - surface_pressure
+    - hour_sin, hour_cos
+    - day_of_week_sin, day_of_week_cos
+    - month_sin, month_cos
+
+    Your features will be automatically applied to all 4 grids.
+
     Thought 1: Wind power is proportional to wind speed cubed, so adding polynomial features of wind speed should improve prediction.
     New Feature 1: wind_speed_cubed | wind_speed_cubed = (wind_speed_10m ** 3)
     """

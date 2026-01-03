@@ -40,7 +40,9 @@ def extract_grid_template(df_full: pd.DataFrame, grid_id: int = 1, source: str =
                 source = col.split('_grid')[0]
                 break
         if source is None:
-            raise ValueError("无法自动检测气象源，请手动指定source参数")
+            # 如果没有找到 _grid，说明已经是 template 格式，直接返回
+            # (这发生在 LLM-FE 第二次调用时，inputs 已经是 template)
+            return df_full
 
     # 查找该grid的所有气象列
     grid_prefix = f"{source}_grid{grid_id}_"
