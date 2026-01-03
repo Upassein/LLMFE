@@ -20,6 +20,13 @@ def evaluate(data: dict):
     """
     Evaluate the feature transformations on wind power prediction task.
 
+    New workflow:
+    1. Extract single grid template (11 columns)
+    2. Apply LLM's feature engineering to template
+    3. Apply engineered template to all 4 grids
+    4. Merge all grids + time features
+    5. Train LGBM with K-Fold CV
+
     Uses Wind project's BaseLGBM with time-series K-Fold CV.
     """
     import sys
@@ -34,21 +41,48 @@ def evaluate(data: dict):
     if wind_project_path not in sys.path:
         sys.path.insert(0, wind_project_path)
 
+    # Add LLM-FE utils to path
+    llmfe_path = '/data/cqj-project/LLM-FE/LLMFE'
+    if llmfe_path not in sys.path:
+        sys.path.insert(0, llmfe_path)
+
     from core.models.base_lgbm import BaseLGBM
+    from utils.grid_template import (
+        extract_grid_template,
+        apply_template_to_grid,
+        merge_all_grids
+    )
 
     # Load data
     inputs, outputs = data['inputs'], data['outputs']
 
-    # === DEBUG: 检查传入数据 ===
-    print(f"[DEBUG] inputs type: {type(inputs)}, shape: {inputs.shape if hasattr(inputs, 'shape') else 'N/A'}")
-    print(f"[DEBUG] outputs type: {type(outputs)}, shape: {outputs.shape if hasattr(outputs, 'shape') else len(outputs)}")
-    if hasattr(outputs, '__iter__'):
-        outputs_array = np.array(list(outputs)[:10])  # 前10个值
-        print(f"[DEBUG] outputs first 10 values: {outputs_array}")
-        print(f"[DEBUG] outputs stats: mean={np.mean(outputs):.2f}, std={np.std(outputs):.2f}, min={np.min(outputs):.2f}, max={np.max(outputs):.2f}")
+    # === Step 1: Extract grid1 as template ===
+    template_df = extract_grid_template(inputs, grid_id=1, source='ecmwf_ifs025')
+    # template_df: 11 columns (5 weather + 6 time)
 
-    # Apply feature transformation
-    X = modify_features(inputs)
+    # === Step 2: Apply LLM's feature engineering to template ===
+    engineered_template = modify_features(template_df)
+    # engineered_template: 11+N columns (original + new features)
+
+    # === Step 3: Apply engineered template to all 4 grids ===
+    all_grids_features = []
+    for grid_id in [1, 2, 3, 4]:
+        grid_features = apply_template_to_grid(
+            template_df=engineered_template,
+            original_inputs=inputs,
+            grid_id=grid_id,
+            modify_features_func=modify_features,
+            source='ecmwf_ifs025'
+        )
+        all_grids_features.append(grid_features)
+
+    # === Step 4: Extract time features (global, not grid-specific) ===
+    time_features = inputs[['hour_sin', 'hour_cos',
+                            'day_of_week_sin', 'day_of_week_cos',
+                            'month_sin', 'month_cos']]
+
+    # === Step 5: Merge all grids + time features ===
+    X = merge_all_grids(all_grids_features, time_features)
 
     # Convert y to pandas Series if it's numpy array (IMPORTANT for BaseLGBM compatibility)
     if isinstance(outputs, np.ndarray):
@@ -73,22 +107,22 @@ def evaluate(data: dict):
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]  # Use .iloc for Series
 
-        # Use Wind project's BaseLGBM with exact same params as model.yaml
+        # Use Wind project's BaseLGBM with faster training params
         model = BaseLGBM(
             model_name='llmfe_eval',
             weather_source='combined',
             params={
                 'objective': 'regression',
                 'metric': 'rmse',
-                'boosting_type': 'dart',
+                'learning_rate': 0.03,
                 'num_leaves': 31,
-                'max_depth': 60,
-                'learning_rate': 0.05,
-                'n_estimators': 500,
-                'min_child_samples': 20,
-                'subsample': 0.8,
-                'subsample_freq': 5,
-                'colsample_bytree': 0.8,
+                'max_depth': 8,
+                'min_child_samples': 50,
+                'feature_fraction': 0.9,
+                'bagging_fraction': 0.8,
+                'bagging_freq': 5,
+                'reg_alpha': 0.1,
+                'reg_lambda': 0.1,
                 'verbose': -1
             }
         )
@@ -124,58 +158,128 @@ def modify_features(df_input) -> pd.DataFrame:
     """
     Feature engineering for wind power prediction.
 
-    IMPORTANT: Always use df_output = df_input.copy() and return df_output at the end!
+    🔄 NEW WORKFLOW:
+    You will receive data from a SINGLE meteorological grid point (not all 4 grids).
+    Your feature engineering will be automatically applied to all 4 grids.
+    Focus on creating physically meaningful features for one location.
 
-    Available features (26 features total):
-    - Wind speed and direction at 10m for 4 spatial grids around the wind farm
-    - Relative humidity at 2m for 4 grids
-    - Pressure (MSL and surface) for 4 grids
-    - Time features: hour_sin/cos, day_of_week_sin/cos, month_sin/cos
+    INPUT FEATURES (11 columns):
 
-    Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW, installed capacity: 99 MW)
+    Meteorological variables (5 columns):
+    - relative_humidity_2m: Relative humidity at 2 meters (%)
+    - wind_speed_10m: Wind speed at 10 meters height (m/s)
+    - wind_direction_10m: Wind direction at 10 meters (degrees, 0-360)
+    - pressure_msl: Mean sea level pressure (hPa)
+    - surface_pressure: Surface pressure (hPa)
+
+    Time features (6 columns):
+    - hour_sin, hour_cos: Hour of day encoded as sin/cos (24-hour cycle)
+    - day_of_week_sin, day_of_week_cos: Day of week encoded (7-day cycle)
+    - month_sin, month_cos: Month of year encoded (12-month cycle)
+
+    TASK: Predict wind power generation
+    - Target range: 0-99 MW
+    - Installed capacity: 99 MW
+    - Mean power: ~20 MW
 
     CRITICAL RULES:
-    1. DO NOT delete or remove any original features - only ADD new features
-    2. Focus on simple, interpretable transformations
-    3. Start with basic features before trying complex combinations
+    1. ✅ Always start with: df_output = df_input.copy()
+    2. ✅ Always return: return df_output
+    3. ✅ DO NOT delete any original features - only ADD new features
+    4. ✅ Create 5-10 new features per iteration
+    5. ✅ Focus on simple, physically meaningful transformations
 
-    Helpful domain knowledge (simplified):
-    - Wind power increases with wind speed (roughly proportional to speed^3)
-    - Different wind directions have different power outputs
-    - Atmospheric pressure affects air density
-    - Higher humidity correlates with lower air density
-    - Spatial differences across grids indicate wind patterns
+    PHYSICAL KNOWLEDGE (wind power fundamentals):
 
-    Suggested feature ideas (try simple ones first):
+    1. Wind Power Law: Power ∝ wind_speed³
+       → Most important feature: wind_speed^3
 
-    BASIC TRANSFORMATIONS:
-    - Wind speed powers: speed^2, speed^3 (wind power law)
-    - Direction encoding: sin(direction), cos(direction) (handle circular variable)
-    - Pressure ratio: pressure_msl / surface_pressure (air density proxy)
+    2. Wind Direction (circular variable):
+       → Convert to U/V components:
+          U = speed × sin(direction_radians)
+          V = speed × cos(direction_radians)
 
-    INTERACTIONS:
-    - Speed × direction: speed * sin(direction), speed * cos(direction)
-    - Speed × time: speed * hour_sin, speed * hour_cos (diurnal patterns)
-    - Speed × humidity: captures air density effect
+    3. Air Density affects power:
+       → Higher pressure → higher density → more power
+       → Higher humidity → lower density → less power
+       → Density proxy: pressure_msl / surface_pressure
 
-    SPATIAL FEATURES:
-    - Average wind speed across grids: mean(speed_grid1, speed_grid2, speed_grid3, speed_grid4)
-    - Wind speed variance: std across grids (turbulence indicator)
-    - Pressure differences: pressure_grid1 - pressure_grid2 (weather fronts)
+    4. Temporal patterns:
+       → Wind speed varies by hour (diurnal cycle)
+       → Seasonal effects in month features
 
-    BINNING (categorize continuous variables):
-    - Wind speed categories: speed_category = speed // 2 (group every 2 m/s)
-    - Hour groups: hour_period = hour // 6 (morning/afternoon/evening/night)
+    SUGGESTED FEATURES (start with simple ones):
 
-    IMPORTANT:
-    - Keep all original 26 features unchanged
-    - Add only 5-10 new features per iteration
-    - Avoid overly complex transformations (no nested conditions, no log of log, etc.)
-    - Test simple ideas first: speed^2 and speed^3 are often most useful
+    BASIC (try these first):
+    ```python
+    # Wind speed powers (MOST IMPORTANT)
+    df_output['wind_speed_squared'] = df_input['wind_speed_10m'] ** 2
+    df_output['wind_speed_cubed'] = df_input['wind_speed_10m'] ** 3
 
-    Previous results:
-    - Baseline RMSE: 13.14 MW
-    - Best with basic polynomials: 12.94 MW (1.5% improvement)
+    # Wind direction decomposition (handle circular variable)
+    wind_dir_rad = np.deg2rad(df_input['wind_direction_10m'])
+    df_output['wind_u'] = df_input['wind_speed_10m'] * np.sin(wind_dir_rad)
+    df_output['wind_v'] = df_input['wind_speed_10m'] * np.cos(wind_dir_rad)
+
+    # Air density proxy
+    df_output['pressure_ratio'] = df_input['pressure_msl'] / (df_input['surface_pressure'] + 1e-6)
+    ```
+
+    INTERACTIONS (try after basic features work):
+    ```python
+    # Speed × time (diurnal patterns)
+    df_output['speed_hour_sin'] = df_input['wind_speed_10m'] * df_input['hour_sin']
+    df_output['speed_hour_cos'] = df_input['wind_speed_10m'] * df_input['hour_cos']
+
+    # Speed × humidity (air density effect)
+    df_output['speed_humidity'] = df_input['wind_speed_10m'] * df_input['relative_humidity_2m']
+
+    # Speed^3 × pressure (power with density correction)
+    df_output['power_density_corrected'] = (df_input['wind_speed_10m'] ** 3) * df_input['pressure_msl']
+    ```
+
+    BINNING (categorize for non-linear patterns):
+    ```python
+    # Wind speed categories (cut-in, linear, rated, cut-out)
+    df_output['speed_low'] = (df_input['wind_speed_10m'] < 3).astype(int)      # Cut-in
+    df_output['speed_medium'] = ((df_input['wind_speed_10m'] >= 3) &
+                                  (df_input['wind_speed_10m'] < 12)).astype(int)  # Linear
+    df_output['speed_high'] = (df_input['wind_speed_10m'] >= 12).astype(int)   # Rated/Cut-out
+    ```
+
+    WHAT NOT TO DO:
+    ❌ Don't create grid-specific features (e.g., grid1_wind_speed)
+    ❌ Don't create spatial aggregations (mean/std across grids) - not visible to you
+    ❌ Don't use complex nested transformations (log of log, etc.)
+    ❌ Don't create more than 15 features at once
+
+    BASELINE PERFORMANCE:
+    - Baseline (no features): RMSE ~13.14 MW
+    - With speed^2, speed^3: RMSE ~12.94 MW (1.5% improvement)
+
+    Your goal: Beat 12.94 MW!
+
+    EXAMPLE TEMPLATE:
+    ```python
+    import pandas as pd
+    import numpy as np
+
+    df_output = df_input.copy()
+
+    # 1. Basic polynomial features
+    df_output['wind_speed_squared'] = df_input['wind_speed_10m'] ** 2
+    df_output['wind_speed_cubed'] = df_input['wind_speed_10m'] ** 3
+
+    # 2. Wind direction components
+    wind_dir_rad = np.deg2rad(df_input['wind_direction_10m'])
+    df_output['wind_u'] = df_input['wind_speed_10m'] * np.sin(wind_dir_rad)
+    df_output['wind_v'] = df_input['wind_speed_10m'] * np.cos(wind_dir_rad)
+
+    # 3. Pressure ratio (air density)
+    df_output['pressure_ratio'] = df_input['pressure_msl'] / (df_input['surface_pressure'] + 1e-6)
+
+    return df_output
+    ```
     """
     import pandas as pd
     import numpy as np
@@ -184,7 +288,8 @@ def modify_features(df_input) -> pd.DataFrame:
     df_output = df_input.copy()
 
     # Add your feature engineering code here
-    # Example: df_output['wind_speed_grid1'] = np.sqrt(df_output['ecmwf_ifs025_grid1_wind_u_10m']**2 + df_output['ecmwf_ifs025_grid1_wind_v_10m']**2)
+    # Focus on physically meaningful features for a single grid point
+    # Your features will be automatically applied to all 4 grids
 
     # IMPORTANT: Always return df_output at the end
     return df_output

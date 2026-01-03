@@ -80,15 +80,17 @@ def evaluate(data: dict):
             params={
                 'objective': 'regression',
                 'metric': 'rmse',
-                'boosting_type': 'dart',
+                
                 'num_leaves': 31,
-                'max_depth': 60,
-                'learning_rate': 0.05,
-                'n_estimators': 500,
-                'min_child_samples': 20,
-                'subsample': 0.8,
-                'subsample_freq': 5,
-                'colsample_bytree': 0.8,
+                'max_depth': 8,
+                'learning_rate': 0.03,
+                
+                'min_child_samples': 50,
+                'feature_fraction': 0.9,
+                'bagging_fraction': 0.8,
+                'bagging_freq': 5,
+                'reg_alpha': 0.1,
+                'reg_lambda': 0.1,
                 'verbose': -1
             }
         )

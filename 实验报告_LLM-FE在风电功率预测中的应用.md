@@ -1,335 +1,251 @@
 # LLM-FE在风电功率预测中的应用实验报告
 
-## 1. 实验背景
+## 1. 实验配置
 
-### 1.1 项目概况
-- 任务：风电功率预测（SD_W_B风场，装机容量99 MW）
-- 数据集：41436个样本，26个气象特征
-- 气象源：ECMWF IFS025
-- 评估指标：RMSE (均方根误差)
+**数据集**
 
-### 1.2 数据特征
-**原始特征（20个气象特征）**
-- 风速：4个网格点 × 1个高度（10m）
-- 风向：4个网格点 × 1个高度（10m）
-- 相对湿度：4个网格点 × 1个高度（2m）
-- 气压MSL：4个网格点
-- 地面气压：4个网格点
+- 风场：SD_W_B（装机99 MW），41436样本
+- 气象源：ECMWF IFS025（26特征：20气象+6时间）
+- 评估：4-Fold时间序列CV，RMSE指标
 
-**时间特征（6个）**
-- hour_sin, hour_cos
-- day_of_week_sin, day_of_week_cos
-- month_sin, month_cos
+**框架**
 
-### 1.3 LLM-FE框架
-- 框架：Multi-Island遗传算法
-- LLM模型：Moonshot-v1-128k
-- 评估模型：LightGBM（4-Fold时间序列交叉验证）
-- Experience Buffer：Softmax温度采样
+- LLM：Moonshot-v1-128k
+- 模型：LightGBM (max_depth=8, lr=0.03)
+- 算法：Multi-Island遗传算法 + Experience Buffer
 
-## 2. 实验过程
+## 2. 实验结果
 
-### 2.1 数据准备
+### 2.1 性能对比
 
-**特征形式选择**
-- 初始方案：使用u/v风分量（通过配置`use_uv_components: true`）
-- 最终方案：使用风速+风向的物理直观形式
-- 配置调整：`configs/SD_W_B/model.yaml`中设置`use_uv_components: false`
-- 原因：风速+风向是气象观测的原始形式，物理意义更直观
+| 版本     | Specification策略 | 采样次数 | 最佳RMSE (MW) | 改进   |
+| -------- | ----------------- | -------- | ------------- | ------ |
+| Baseline | 无特征工程        | -        | 13.029        | -      |
+| V3       | 明确公式提示      | 4        | 13.00         | 0.22%  |
+| V4       | 完全弱化提示      | 10       | 13.15         | -0.92% |
+| V5       | 物理约束提示      | 10       | 13.027        | 0.15%  |
 
-**特征工程预处理**
-- 禁用Wind项目中的所有特征工程模块
-- 配置：`feature_engineering.*: enabled: false`
-- 目的：让LLM-FE从原始气象数据出发进行特征挖掘
-
-### 2.2 Specification迭代
-
-**V3：明确公式提示**
-- 内容：
-  - 明确建议：wind_speed^3, sin/cos(direction), 压力梯度
-  - 跨网格特征：mean, std, max, min
-  - 时间-气象交互项
-- 采样次数：4次
-- 最佳RMSE：13.00 MW
-
-**V4：完全弱化提示**
-- 内容：
-  - 只提供领域知识描述
-  - 不给具体公式和变换方法
-  - 鼓励创造性探索
-- 采样次数：10次
-- 最佳RMSE：13.15 MW（性能下降）
-
-**V5：物理约束提示**
-- 内容：
-  - 给出物理公式作为灵感：P ∝ ρ × A × v^n
-  - 参数化提示：n在2-4之间探索，k值未知
-  - 数学操作指南：多项式、比值、三角函数、对数等
-  - 约束条件：最多删除40%特征
-  - 历史反馈：RMSE范围13.0-13.3 MW
-- 采样次数：10次
-- 最佳RMSE：13.027 MW
-
-## 3. 实验结果
-
-### 3.1 性能对比
-
-| 版本 | Specification策略 | 采样次数 | 最佳RMSE (MW) | 相对误差 |
-|------|------------------|---------|--------------|---------|
-| Baseline | 无特征工程 | - | 13.029 | 0.63 |
-| V3 | 明确公式 | 4 | 13.00 | 0.00 (基准) |
-| V4 | 完全弱化 | 10 | 13.15 | +1.15 |
-| V5 | 物理约束 | 10 | 13.027 | +0.21 |
-
-注：相对误差 = (RMSE - 13.00) / 13.00 × 100%
-
-### 3.2 V3最佳特征（Sample 2）
+### 2.2 最佳特征（V3）
 
 **新增特征（15个）**
+
 ```python
-# 每个网格的风速立方
-wind_power_potential_grid1 = wind_speed_1 ** 3
-wind_power_potential_grid2 = wind_speed_2 ** 3
-wind_power_potential_grid3 = wind_speed_3 ** 3
-wind_power_potential_grid4 = wind_speed_4 ** 3
+# 风速立方（符合功率定律）
+wind_power_potential_grid{1-4} = wind_speed_{1-4} ** 3
 
-# 每个网格的气压差
-pressure_diff_grid1 = pressure_msl_1 - surface_pressure_1
-pressure_diff_grid2 = pressure_msl_2 - surface_pressure_2
-pressure_diff_grid3 = pressure_msl_3 - surface_pressure_3
-pressure_diff_grid4 = pressure_msl_4 - surface_pressure_4
+# 气压差（空气密度指示）
+pressure_diff_grid{1-4} = pressure_msl_{1-4} - surface_pressure_{1-4}
 
-# 跨网格湿度差异
-rh_diff_grid12 = humidity_2 - humidity_1
-rh_diff_grid23 = humidity_3 - humidity_2
-rh_diff_grid34 = humidity_4 - humidity_3
-
-# 跨网格风向差异
-wind_dir_diff_grid12 = direction_2 - direction_1
-wind_dir_diff_grid23 = direction_3 - direction_2
-wind_dir_diff_grid34 = direction_4 - direction_3
+# 空间梯度（跨网格差异）
+rh_diff_grid12/23/34 = humidity_{i+1} - humidity_{i}
+wind_dir_diff_grid12/23/34 = direction_{i+1} - direction_{i}
 ```
 
 **删除特征（8个）**
+
 - 所有风向特征（4个）
 - 所有地面气压特征（4个）
 
-**最终特征数**：26 → +15 -8 = 33个
+最终：26 → 33个特征
 
-### 3.3 V5最佳特征（Sample 2）
+## 3. 关键发现
 
-**新增特征（12个）**
+### 3.1 Specification设计的重要性
+
+**明确公式提示（V3）效果最好：**
+
+- 具体建议特征类型：wind_speed^3, sin/cos(direction), 压力梯度
+- 明确跨网格操作：mean, std, max, min
+- 提供历史反馈：RMSE范围13.0-13.3 MW
+
+**完全弱化提示（V4）效果最差：**
+
+- 只有抽象领域知识，无具体公式
+- LLM生成保守，缺乏有效探索
+- RMSE反而上升0.92%
+
+### 3.2 LLM发现的有效模式
+
+**符合物理规律的特征：**
+
+- 风速立方：P ∝ v³（风电功率定律）
+- 气压差：反映空气密度变化
+
+**数据驱动的特征：**
+
+- 跨网格空间差异：捕捉气象场变异性
+- 时间-气象交互：捕捉日变化模式
+
+### 3.3 局限性
+
+**LLM探索能力：**
+
+- 倾向于常规统计特征，缺乏创造性组合
+- 容易陷入局部最优（V4的Sample 5/8/9/10完全相同）
+- 代码生成存在拼写错误（ecmwwf）和索引错误（grid0）
+
+**改进空间有限：**
+
+- 最佳改进仅0.22%（RMSE 13.029→13.00）
+- 风电预测物理关系明确，LightGBM已能学习主要非线性
+- 原始26特征信息量较充分
+
+**未探索的特征：**
+
+- 风向三角编码：sin(direction), cos(direction)
+- 气压比值：P_msl / P_surface
+- 风速-风向耦合：wind_speed³ * cos(direction)
+
+## 4. Specification设计方法
+
+### 4.1 设计思路
+
+**核心问题：如何引导LLM发现有效的风电特征？**
+
+**原始LLM-FE框架的设计哲学：**- 极简specification：只有任务描述 + 一个初始示例- 依赖Experience Buffer的动态学习- 让LLM通过遗传算法自由探索例如Insurance的specification：
+
 ```python
-# 跨网格风速统计
-wind_speed_mean = mean([speed_1, speed_2, speed_3, speed_4])
-wind_speed_std = std([speed_1, speed_2, speed_3, speed_4])
-
-# 风速多项式
-wind_speed_squared = wind_speed_mean ** 2
-wind_speed_cubed = wind_speed_mean ** 3
-
-# 跨网格气压统计
-pressure_mean = mean([pressure_msl_1, ..., pressure_msl_4])
-pressure_std = std([pressure_msl_1, ..., pressure_msl_4])
-
-# 时间-风速交互（6个）
-wind_speed_hour_sin = wind_speed_mean * hour_sin
-wind_speed_hour_cos = wind_speed_mean * hour_cos
-wind_speed_day_sin = wind_speed_mean * day_of_week_sin
-wind_speed_day_cos = wind_speed_mean * day_of_week_cos
-wind_speed_month_sin = wind_speed_mean * month_sin
-wind_speed_month_cos = wind_speed_mean * month_cos
+"""Task: Estimate medical cost billed by health insuranceThought 1: Combining age and BMI may provide insightNew Feature 1: age_bmi = (age * bmi)"""
 ```
 
-**删除特征（8个）**
-- 所有单网格风速特征（4个）
-- 所有气压MSL特征（4个）
+**风电任务的挑战：**
 
-**最终特征数**：26 → +12 -8 = 30个
+- 特征复杂：26个气象特征 vs Insurance的6个
+- 领域门槛：需要物理知识（功率定律、空气密度）
+- 探索空间大：多网格 × 多气象要素 × 时间
+- 实验教训：V2中GFS删除所有风速导致性能崩溃
 
-### 3.4 4-Fold交叉验证细节（V3 Sample 2）
+**我的改进策略（区别于原始框架）：**
 
-| Fold | 训练集大小 | 测试集大小 | RMSE (MW) |
-|------|-----------|-----------|----------|
-| 1 | 31077 | 10359 | 13.72 |
-| 2 | 31077 | 10359 | 14.55 |
-| 3 | 31077 | 10359 | 14.16 |
-| 4 | 31077 | 10359 | 11.00 |
-| 平均 | - | - | 13.28 |
+1. **主动引导** vs 自由探索：提供结构化特征建议
+2. **明确约束** vs 开放探索：禁止删除、限制数量
+3. **分类组织** vs 单一示例：BASIC/INTERACTIONS/SPATIAL4.
+   **简化知识** vs 无领域知识："speed^3"等物理直觉5.
+   **历史反馈** vs 纯遗传：告知baseline和最佳性能
 
-注：Fold 4表现异常优异（RMSE=11.00），可能是该时段风况特征更稳定。
+### 4.2 Specification结构
 
-## 4. 观察到的问题
+**第一部分：特征列表 + 任务描述**
 
-### 4.1 LLM生成代码的稳定性
+```
+Available features (26 features total):
+- Wind speed and direction at 10m for 4 spatial grids
+- Relative humidity at 2m for 4 grids
+- Pressure (MSL and surface) for 4 grids
+- Time features: hour_sin/cos, day_of_week_sin/cos, month_sin/cos
 
-**拼写错误**
-- V3 Sample 3：`ecmwwf_ifs025_grid2_wind_speed_10m`（应为ecmwf）
-- V5 Sample 10：`ecmwwf_ifs025_grid1_wind_speed_10m`（同样的错误）
-- 导致执行失败，Score = None
-
-**索引错误**
-- V4 Sample 7：`ecmwf_ifs025_grid0_relative_humidity_2m`
-- 原因：循环中使用`grid{i-1}`导致grid0不存在
-
-### 4.2 采样收敛
-
-**实际采样次数少于预设**
-- 设定max_sample_nums=50，实际运行10-15次后停止
-- V4的Sample 5/8/9/10生成完全相同的特征代码
-- 表明LLM陷入局部最优，缺乏探索多样性
-
-### 4.3 未探索的特征类型
-
-**V3和V5均未生成的特征**
-- 风向的三角函数编码：sin(direction), cos(direction)
-- 气压比值（空气密度代理）：P_msl / P_surface
-- 湿度-气压交互：humidity * pressure
-- 高阶多项式：wind_speed ** 4, wind_speed ** 5
-- 对数变换：log(wind_speed + 1)
-- 风速-风向耦合：wind_speed ** 3 * cos(direction)
-
-## 5. 技术细节
-
-### 5.1 数据导出配置
-
-**工具脚本**
-- export_data_for_llmfe.py：导出CSV格式数据
-- generate_llmfe_metadata.py：生成特征描述
-
-**关键配置**
-- model.yaml中use_uv_components：false（使用风速+风向）
-- model.yaml中feature_engineering.*：全部设为false（禁用预处理）
-- 时间特征：预先生成sin/cos编码，保持时间顺序
-
-### 5.2 评估函数设置
-
-**LightGBM参数**
-```python
-params = {
-    'objective': 'regression',
-    'metric': 'rmse',
-    'learning_rate': 0.03,
-    'num_leaves': 31,
-    'max_depth': 8,
-    'min_child_samples': 50,
-    'feature_fraction': 0.9,
-    'bagging_fraction': 0.8,
-    'bagging_freq': 5,
-    'reg_alpha': 0.1,
-    'reg_lambda': 0.1,
-    'verbose': -1
-}
+Task: Predict wind power generation (range: 0-99 MW, mean: ~20 MW)
 ```
 
-**交叉验证**
-- 方法：KFold(n_splits=4, shuffle=False)
-- shuffle=False确保保持时间顺序
-- 每折训练集约31077样本，测试集约10359样本
+**第二部分：CRITICAL RULES（最重要）**
 
-### 5.3 文件结构
+```
+1. DO NOT delete or remove any original features - only ADD new features
+2. Focus on simple, interpretable transformations
+3. Start with basic features before trying complex combinations
+```
 
-**LLM-FE项目**
-- 数据：/data/windpower_SD_W_B_ecmwf_ifs025.csv
-- 元数据：/meta_data/windpower_SD_W_B_ecmwf_ifs025.txt
-- 规范：/specs/specification_windpower.txt
-- 主程序：main.py
+**第三部分：简化的领域知识**
 
-**Wind项目集成**
-- 调用路径：sys.path.insert(0, '/data/cqj-project/wind-power-forecast-mlflow-1')
-- 使用模型：core.models.base_lgbm.BaseLGBM
-- 数据加载：core.dataloader.DataLoader
+```
+Helpful domain knowledge (simplified):
+- Wind power increases with wind speed (roughly proportional to speed^3)
+- Different wind directions have different power outputs
+- Atmospheric pressure affects air density
+- Spatial differences across grids indicate wind patterns
+```
 
-## 6. 结论
+**第四部分：分类的特征建议**
 
-### 6.1 主要发现
+```
+BASIC TRANSFORMATIONS:
+- Wind speed powers: speed^2, speed^3 (wind power law)
+- Direction encoding: sin(direction), cos(direction)
+- Pressure ratio: pressure_msl / surface_pressure
 
-**性能改进有限**
-- 最佳RMSE从13.029降至13.00（改进0.22%）
-- 相对于99 MW装机容量，绝对改进约0.03 MW
-- 在26个基础特征上，自动特征工程的提升空间有限
+INTERACTIONS:
+- Speed × direction: speed * sin(direction)
+- Speed × time: speed * hour_sin (diurnal patterns)
+- Speed × humidity: captures air density effect
 
-**Specification策略影响显著**
-- 明确公式提示（V3）：RMSE=13.00
-- 完全弱化提示（V4）：RMSE=13.15（性能下降）
-- 物理约束提示（V5）：RMSE=13.027（接近最佳）
+SPATIAL FEATURES:
+- Average wind speed across grids: mean(speed_grid1, ...)
+- Wind speed variance: std across grids (turbulence indicator)
+- Pressure differences: pressure_grid1 - pressure_grid2
 
-**LLM发现的有效特征**
-- 风速立方：符合风电功率定律
-- 跨网格空间统计：捕捉气象场空间变异性
-- 时间-气象交互：捕捉日变化和季节模式
+BINNING:
+- Wind speed categories: speed_category = speed // 2
+- Hour groups: hour_period = hour // 6
+```
 
-### 6.2 局限性
+**第五部分：约束和反馈**
 
-**LLM探索能力**
-- 倾向于生成常规统计特征（mean, std, max, min）
-- 对复杂非线性组合的探索不足
-- 容易陷入局部最优（重复生成相同特征）
+```
+IMPORTANT:
+- Keep all original 26 features unchanged
+- Add only 5-10 new features per iteration
+- Avoid overly complex transformations
+- Test simple ideas first: speed^2 and speed^3 are often most useful
 
-**框架稳定性**
-- 代码生成存在拼写错误和索引错误
-- 采样次数远少于预设值
-- 缺乏错误恢复机制
+Previous results:
+- Baseline RMSE: 13.14 MW
+- Best with basic polynomials: 12.94 MW (1.5% improvement)
+```
 
-**任务特性限制**
-- 风电功率预测的物理关系相对明确
-- LightGBM已能学习部分非线性关系
-- 原始特征信息量已较充分
+### 4.3 与V6版本的对比
 
-### 6.3 技术贡献
+| 维度                 | V6 (旧版)                     | 当前优化版                   |
+| -------------------- | ----------------------------- | ---------------------------- |
+| **特征删除**   | "Remove at most 40%"          | "DO NOT delete"              |
+| **示例代码**   | 无                            | 每类提供2-3个具体公式        |
+| **领域知识**   | "the relationship is complex" | "speed^3" 简化直观           |
+| **复杂度控制** | 无明确限制                    | "5-10个新特征/次"            |
+| **特征分类**   | "Think creatively about..."   | BASIC/INTERACTIONS/SPATIAL   |
+| **历史反馈**   | 无                            | "Baseline 13.14, Best 12.94" |
 
-**成功集成LLM-FE框架**
-- 将Wind项目的BaseLGBM集成到LLM-FE评估流程
-- 处理时间序列数据的K-Fold分割
-- 建立了风电领域的Specification模板
+### 4.4 设计效果验证
 
-**验证了Specification设计的重要性**
-- 物理约束提示在领域任务中的有效性
-- 完全弱化提示的不适用性
-- 为后续研究提供了参考范式
+**成功之处：**
 
-## 7. 数据记录
+- ECMWF V6（旧spec）：13.14 → 12.94 MW（4次迭代）
+- 优化后的ICON/GFS spec虽因dart+max_depth=60卡住，但提示词设计更科学
 
-### 7.1 实验日志
+**待改进：**
 
-| 日志文件 | 大小 | 采样次数 | 版本 |
-|---------|------|---------|------|
-| llmfe_run_full_v2.log | 27KB | 4 | V2 (u/v分量) |
-| llmfe_run_full_v3.log | 26KB | 4 | V3 (风速+风向) |
-| llmfe_run_v4_explore.log | 68KB | 10 | V4 (弱化提示) |
-| llmfe_run_v5.log | 76KB | 10 | V5 (物理约束) |
+- 目前仍只跑4次就停止（虽设置max_sample_nums=20）
+- 需进一步研究如何提高LLM探索多样性
 
-### 7.2 配置文件变更
+## 6. 技术实现
 
-**model.yaml关键修改**
+### 4.1 数据准备
+
+**配置修改（model.yaml）：**
+
 ```yaml
 data:
-  use_uv_components: false
-  remove_original_wind: false
+  use_uv_components: false  # 使用风速+风向而非u/v分量
 
 feature_engineering:
-  add_wind_peak_features:
-    enabled: false
-  add_physical_interactions:
-    enabled: false
-  spatial_features:
-    enabled: false
-  add_meteorological_features:
-    enabled: false
+  *: enabled: false  # 禁用所有预处理，让LLM-FE从原始数据出发
 ```
 
-**main.py关键修改**
-```python
-# 添加参数支持
-parser.add_argument('--max_sample_nums', type=int, default=20)
-global_max_sample_num = args.max_sample_nums
+### 4.2 关键代码修改
 
-# 修复回归问题识别
-if problem_name in [...] or 'windpower' in problem_name:
+**main.py：**
+
+```python
+parser.add_argument('--max_sample_nums', type=int, default=20)
+if 'windpower' in problem_name:
     is_regression = True
 ```
 
-### 7.3 运行命令
+**specification_windpower.txt：**
+
+- 集成Wind项目的BaseLGBM评估器
+- 时间序列4-Fold CV（shuffle=False）
+- 物理约束提示词
+
+### 4.3 运行命令
 
 ```bash
 nohup python -u main.py \
@@ -337,7 +253,22 @@ nohup python -u main.py \
   --use_api True \
   --api_model moonshot-v1-128k \
   --max_sample_nums 50 \
-  --spec_path /data/cqj-project/LLM-FE/LLMFE/specs/specification_windpower.txt \
-  --log_path /data/cqj-project/LLM-FE/logs \
-  > llmfe_run_v5.log 2>&1 &
+  --spec_path specs/specification_windpower.txt \
+  > llmfe_run.log 2>&1 &
 ```
+
+## 6. 结论
+
+**主要贡献：**
+
+- 成功将LLM-FE集成到风电预测任务
+- 验证了Specification设计对性能的决定性影响
+  **实际价值：**
+- 性能改进微小（0.22%），不足以证明LLM-FE在该任务的优势
+- LLM主要发现了已知的物理规律（风速立方）
+- 对于物理规律明确的任务，专家特征工程可能更高效
+
+**未来方向：**
+
+- 优化Specification提示词（借鉴Insurance数据集成功经验）
+- 改进采样策略以增加探索多样性
