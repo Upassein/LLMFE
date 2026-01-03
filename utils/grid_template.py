@@ -9,50 +9,23 @@ import numpy as np
 from typing import List, Tuple
 
 
-def extract_grid_template(df_full: pd.DataFrame, grid_id: int = 1, source: str = 'ecmwf_ifs025') -> pd.DataFrame:
+def extract_grid_template(df_full: pd.DataFrame, grid_id: int = 1, source: str = None) -> pd.DataFrame:
     """
     从完整的多grid数据中提取单个grid的模板
 
-    输入:
-        df_full: 完整数据 (26列)
-            - source_grid1_relative_humidity_2m
-            - source_grid1_wind_speed_10m
-            - source_grid1_wind_direction_10m
-            - source_grid1_pressure_msl
-            - source_grid1_surface_pressure
-            - ... (grid2, grid3, grid4)
-            - hour_sin, hour_cos
-            - day_of_week_sin, day_of_week_cos
-            - month_sin, month_cos
-
-    输出:
-        template (11列):
-            - relative_humidity_2m
-            - wind_speed_10m
-            - wind_direction_10m
-            - pressure_msl
-            - surface_pressure
-            - hour_sin, hour_cos
-            - day_of_week_sin, day_of_week_cos
-            - month_sin, month_cos
+    自动识别气象源和特征结构，支持：
+    - ecmwf_ifs025: 5个特征 (10m)
+    - gfs_global: 9个特征 (10m + 80m + 120m)
+    - icon_global: 11个特征 (10m + 80m + 120m + 180m)
 
     Args:
-        df_full: 完整的26列DataFrame
+        df_full: 完整DataFrame
         grid_id: 要提取的grid编号 (1, 2, 3, 或 4)
-        source: 气象源名称（如 'ecmwf_ifs025'）
+        source: 气象源名称（如 'ecmwf_ifs025'），如果为None则自动检测
 
     Returns:
-        单grid的模板DataFrame (11列)
+        单grid的模板DataFrame
     """
-    # 定义气象变量名（去掉grid前缀）
-    weather_vars = [
-        'relative_humidity_2m',
-        'wind_speed_10m',
-        'wind_direction_10m',
-        'pressure_msl',
-        'surface_pressure'
-    ]
-
     # 定义时间特征（不属于任何grid，是全局的）
     time_features = [
         'hour_sin', 'hour_cos',
@@ -60,19 +33,34 @@ def extract_grid_template(df_full: pd.DataFrame, grid_id: int = 1, source: str =
         'month_sin', 'month_cos'
     ]
 
-    # 构造该grid的列名
+    # 自动检测气象源
+    if source is None:
+        for col in df_full.columns:
+            if '_grid' in col:
+                source = col.split('_grid')[0]
+                break
+        if source is None:
+            raise ValueError("无法自动检测气象源，请手动指定source参数")
+
+    # 查找该grid的所有气象列
     grid_prefix = f"{source}_grid{grid_id}_"
-    grid_cols = {f"{grid_prefix}{var}": var for var in weather_vars}
+    grid_cols = {}
+
+    for col in df_full.columns:
+        if col.startswith(grid_prefix) and col not in time_features:
+            # 去掉前缀，得到简化的列名
+            simple_name = col[len(grid_prefix):]
+            grid_cols[col] = simple_name
+
+    if not grid_cols:
+        raise ValueError(f"未找到grid{grid_id}的列（前缀: {grid_prefix}）")
 
     # 提取数据
     template_df = pd.DataFrame(index=df_full.index)
 
     # 添加气象变量（重命名，去掉grid前缀）
     for full_col, simple_col in grid_cols.items():
-        if full_col in df_full.columns:
-            template_df[simple_col] = df_full[full_col].copy()
-        else:
-            raise ValueError(f"Column {full_col} not found in input DataFrame")
+        template_df[simple_col] = df_full[full_col].copy()
 
     # 添加时间特征
     for time_col in time_features:
@@ -89,7 +77,7 @@ def apply_template_to_grid(
     original_inputs: pd.DataFrame,
     grid_id: int,
     modify_features_func,
-    source: str = 'ecmwf_ifs025'
+    source: str = None
 ) -> pd.DataFrame:
     """
     将工程化的模板应用到指定grid

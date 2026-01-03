@@ -56,13 +56,14 @@ def evaluate(data: dict):
     # Load data
     inputs, outputs = data['inputs'], data['outputs']
 
-    # === Step 1: Extract grid1 as template ===
-    template_df = extract_grid_template(inputs, grid_id=1, source='ecmwf_ifs025')
-    # template_df: 11 columns (5 weather + 6 time)
+    # === Step 1: Extract grid1 as template (auto-detect source) ===
+    template_df = extract_grid_template(inputs, grid_id=1, source=None)
+    # template_df: N weather features + 6 time features
+    # N depends on source: ecmwf(5), gfs(9), icon(11)
 
     # === Step 2: Apply LLM's feature engineering to template ===
     engineered_template = modify_features(template_df)
-    # engineered_template: 11+N columns (original + new features)
+    # engineered_template: (N+6) + M columns (original + new features)
 
     # === Step 3: Apply engineered template to all 4 grids ===
     all_grids_features = []
@@ -72,7 +73,7 @@ def evaluate(data: dict):
             original_inputs=inputs,
             grid_id=grid_id,
             modify_features_func=modify_features,
-            source='ecmwf_ifs025'
+            source=None  # Auto-detect
         )
         all_grids_features.append(grid_features)
 
