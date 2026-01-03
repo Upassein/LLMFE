@@ -108,6 +108,15 @@ def apply_template_to_grid(
         该grid的工程化特征（5+N列，带grid前缀）
         注意：不包含时间特征（时间特征是全局的，会在最后统一添加）
     """
+    # 0. 如果source为None，自动检测
+    if source is None:
+        for col in original_inputs.columns:
+            if '_grid' in col:
+                source = col.split('_grid')[0]
+                break
+        if source is None:
+            raise ValueError("无法自动检测气象源，请手动指定source参数")
+
     # 1. 提取该grid的原始数据（11列）
     grid_template = extract_grid_template(original_inputs, grid_id=grid_id, source=source)
 
