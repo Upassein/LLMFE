@@ -92,10 +92,14 @@ def evaluate(data: dict):
     # === Step 1: Template is already provided by LLM-FE ===
     # template_inputs: 11 columns (5 weather + 6 time features)
     # No need to extract, it's already the template
+    print(f"[DEBUG] template_inputs shape: {template_inputs.shape}")
+    print(f"[DEBUG] template_inputs columns: {template_inputs.columns.tolist()}")
 
     # === Step 2: Apply LLM's feature engineering to template ===
     engineered_template = modify_features(template_inputs)
     # engineered_template: 11 + M columns (original + new features)
+    print(f"[DEBUG] engineered_template shape: {engineered_template.shape}")
+    print(f"[DEBUG] engineered_template columns: {engineered_template.columns.tolist()}")
 
     # === Step 3: Apply engineered template to all 4 grids ===
     all_grids_features = []
@@ -184,8 +188,12 @@ def evaluate(data: dict):
 
     # Return average score
     avg_score = np.mean(scores)
-    # Return engineered template so LLM sees both original and new features in [EXAMPLES]
-    return avg_score, engineered_template, outputs
+    # IMPORTANT: Always return the ORIGINAL template (not engineered)
+    # This ensures LLM always has access to all original features
+    # even if previous samples deleted some columns
+    # We need to extract template from full_inputs to get original columns
+    original_template = extract_grid_template(full_inputs, grid_id=1, source=weather_source)
+    return avg_score, original_template, outputs
 
 
 @equation.evolve
