@@ -254,10 +254,16 @@ class Evaluator:
                 scores_per_test[current_input] = test_output[0]
                 input_data = test_output[1]
                 output_data = test_output[2]
+                # 🆕 Extract CART feedback if available (4th element)
+                cart_feedback = test_output[3] if len(test_output) > 3 else None
 
         evaluate_time = time.time() - time_reset
 
         if scores_per_test:
+            # 🆕 Add CART feedback to the function object
+            if cart_feedback is not None:
+                new_function.cart_feedback = cart_feedback
+
             self._database.register_program(
                 new_function,
                 island_id,

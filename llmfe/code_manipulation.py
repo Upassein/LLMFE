@@ -31,6 +31,7 @@ class Function:
     sample_time: float | None = None
     evaluate_time: float | None = None
     data_input: pd.DataFrame | None = None
+    cart_feedback: str | None = None  # CART decision tree feedback for LLM
 
     def __str__(self) -> str:
         return_type = f' -> {self.return_type}' if self.return_type else ''

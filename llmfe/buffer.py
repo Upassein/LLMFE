@@ -269,9 +269,21 @@ class Island:
             implementation.name = new_function_name
             # Update the docstring for all subsequent functions after `_v0`.
             if i >= 1:
-                implementation.docstring = (
-                    f'Improved version of `{self._function_to_evolve}_v{i - 1}`.'
-                    )
+                base_docstring = f'Improved version of `{self._function_to_evolve}_v{i - 1}`.'
+
+                # 🆕 Add score information if available
+                if hasattr(implementation, 'score') and implementation.score is not None:
+                    base_docstring += f'
+
+Score: {implementation.score:.3f} (RMSE={-implementation.score:.3f} MW)'
+
+                # 🆕 Add CART feedback if available (OCTree-inspired)
+                if hasattr(implementation, 'cart_feedback') and implementation.cart_feedback:
+                    base_docstring += f'
+
+{implementation.cart_feedback}'
+
+                implementation.docstring = base_docstring
             # If the function is recursive, replace calls to itself with its new name.
             input_data.append(implementation.data_input)
             output_data.append(implementation.data_output)

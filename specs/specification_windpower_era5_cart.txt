@@ -3,7 +3,7 @@
 
 ###
 <Task>
-Predict wind power generation (MW) from meteorological forecast data.
+Predict wind power generation (MW) from ERA5 reanalysis meteorological data.
 
 ###
 <Features>
@@ -18,16 +18,19 @@ Predict wind power generation (MW) from meteorological forecast data.
 @evaluate.run
 def evaluate(data: dict):
     """
-    Evaluate the feature transformations on wind power prediction task.
+    Evaluate the feature transformations on wind power prediction task (ERA5 data).
 
-    New workflow:
-    1. Extract single grid template (11 columns)
+    Workflow:
+    1. Extract single grid template (13 columns: 7 weather + 6 time)
     2. Apply LLM's feature engineering to template
     3. Apply engineered template to all 4 grids
     4. Merge all grids + time features
     5. Train LGBM with K-Fold CV
 
-    Uses Wind project's BaseLGBM with time-series K-Fold CV.
+    ERA5 特点：
+    - 有100m高度数据（wind_speed_100m, wind_direction_100m）
+    - 高质量再分析数据
+    - 小时级时间分辨率
     """
     import sys
     from pathlib import Path
@@ -36,7 +39,7 @@ def evaluate(data: dict):
     from sklearn.model_selection import KFold
     from sklearn.metrics import mean_squared_error
 
-    # Add Wind project to Python path (modify this path on your server)
+    # Add Wind project to Python path
     wind_project_path = '/data/cqj-project/wind-power-forecast-mlflow-1'
     if wind_project_path not in sys.path:
         sys.path.insert(0, wind_project_path)
@@ -54,75 +57,59 @@ def evaluate(data: dict):
     )
 
     # Load data
-    # inputs from LLM-FE is template (11 cols without grid prefix)
-    # We need to reload the full 26-col data for applying to all grids
     template_inputs, outputs = data['inputs'], data['outputs']
 
-    # Detect weather source from template column names
-    # template has columns like: wind_speed_10m, wind_speed_80m (gfs/icon), etc.
-    weather_source = None
-    if 'wind_speed_80m' in template_inputs.columns:
-        if 'wind_speed_180m' in template_inputs.columns:
-            weather_source = 'icon_global'
-        else:
-            weather_source = 'gfs_global'
-    else:
-        weather_source = 'ecmwf_ifs025'
+    # ERA5 weather source detection (has wind_speed_100m)
+    weather_source = 'era5'
 
     # Re-load the full multi-grid data from CSV
-    # This ensures we always have access to all 4 grids
     import os
     data_dir = '/data/cqj-project/LLM-FE/LLMFE/data'
     data_path = os.path.join(data_dir, f'windpower_SD_W_B_{weather_source}.csv')
 
     if not os.path.exists(data_path):
-        # Fallback to current directory
         data_path = f'./data/windpower_SD_W_B_{weather_source}.csv'
 
     full_df = pd.read_csv(data_path)
 
-    # Extract features and target (last column)
-    target_col = full_df.columns[-1]  # 'power' or 'target'
+    # Extract features and target
+    target_col = full_df.columns[-1]
     full_inputs = full_df.drop(columns=[target_col])
     full_outputs = full_df[target_col]
 
     # Verify shape matches
     assert len(full_inputs) == len(template_inputs), f"Data length mismatch: {len(full_inputs)} vs {len(template_inputs)}"
 
-    # === Step 1: Template is already provided by LLM-FE ===
-    # template_inputs: 11 columns (5 weather + 6 time features)
-    # No need to extract, it's already the template
     print(f"[DEBUG] template_inputs shape: {template_inputs.shape}")
     print(f"[DEBUG] template_inputs columns: {template_inputs.columns.tolist()}")
 
-    # === Step 2: Apply LLM's feature engineering to template ===
+    # Apply LLM's feature engineering to template
     engineered_template = modify_features(template_inputs)
-    # engineered_template: 11 + M columns (original + new features)
     print(f"[DEBUG] engineered_template shape: {engineered_template.shape}")
     print(f"[DEBUG] engineered_template columns: {engineered_template.columns.tolist()}")
 
-    # === Step 3: Apply engineered template to all 4 grids ===
+    # Apply engineered template to all 4 grids
     all_grids_features = []
 
     for grid_id in [1, 2, 3, 4]:
         grid_features = apply_template_to_grid(
             template_df=engineered_template,
-            original_inputs=full_inputs,  # Use full 26-col data
+            original_inputs=full_inputs,
             grid_id=grid_id,
             modify_features_func=modify_features,
-            source=None  # Auto-detect
+            source='era5'  # Explicitly specify ERA5
         )
         all_grids_features.append(grid_features)
 
-    # === Step 4: Extract time features (global, not grid-specific) ===
+    # Extract time features
     time_features = full_inputs[['hour_sin', 'hour_cos',
                                  'day_of_week_sin', 'day_of_week_cos',
                                  'month_sin', 'month_cos']]
 
-    # === Step 5: Merge all grids + time features ===
+    # Merge all grids + time features
     X = merge_all_grids(all_grids_features, time_features)
 
-    # Convert y to pandas Series if it's numpy array (IMPORTANT for BaseLGBM compatibility)
+    # Convert y to pandas Series
     if isinstance(outputs, np.ndarray):
         y = pd.Series(outputs, index=X.index, name='power')
     else:
@@ -143,12 +130,12 @@ def evaluate(data: dict):
 
     for train_idx, test_idx in kf.split(X, y):
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
-        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]  # Use .iloc for Series
+        y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
 
-        # Use Wind project's BaseLGBM with faster training params
+        # Use Wind project's BaseLGBM
         model = BaseLGBM(
             model_name='llmfe_eval',
-            weather_source='combined',
+            weather_source='era5',
             params={
                 'objective': 'regression',
                 'metric': 'rmse',
@@ -166,7 +153,6 @@ def evaluate(data: dict):
         )
 
         try:
-            # Train using Wind project's training method
             model.train(
                 X_train=X_train,
                 y_train=y_train,
@@ -176,13 +162,11 @@ def evaluate(data: dict):
                 early_stopping_rounds=50
             )
 
-            # Predict and calculate RMSE
             y_pred = model.predict(X_test)
             rmse = np.sqrt(mean_squared_error(y_test, y_pred))
-            scores.append(-rmse)  # Negative for maximization
+            scores.append(-rmse)
 
         except Exception as e:
-            # If training fails, return a very bad score
             print(f"Training error: {e}")
             scores.append(-999999)
 
@@ -202,23 +186,24 @@ def evaluate(data: dict):
             cart_feedback = None
     else:
         print(f"Skip CART generation due to LGBM training failure")
-    # IMPORTANT: Always return the ORIGINAL template (not engineered)
-    # This ensures LLM always has access to all original features
-    # even if previous samples deleted some columns
-    # We need to extract template from full_inputs to get original columns
-    original_template = extract_grid_template(full_inputs, grid_id=1, source=weather_source)
+
+
+    # Always return the ORIGINAL template
+    original_template = extract_grid_template(full_inputs, grid_id=1, source='era5')
     return avg_score, original_template, outputs, cart_feedback
 
 
 @equation.evolve
 def modify_features(df_input) -> pd.DataFrame:
     """
-    Feature engineering for wind power prediction.
+    Feature engineering for wind power prediction using ERA5 reanalysis data.
 
     IMPORTANT: Input is from a SINGLE grid point with simplified column names:
-    - wind_speed_10m (NOT ecmwf_ifs025_grid1_wind_speed_10m)
-    - wind_direction_10m
     - relative_humidity_2m
+    - wind_speed_10m
+    - wind_direction_10m
+    - wind_speed_100m         <- ERA5 unique: hub-height wind speed
+    - wind_direction_100m     <- ERA5 unique: hub-height wind direction
     - pressure_msl
     - surface_pressure
     - hour_sin, hour_cos
@@ -226,19 +211,21 @@ def modify_features(df_input) -> pd.DataFrame:
     - month_sin, month_cos
 
     Your features will be automatically applied to all 4 grids.
+
     NOTE: This is TIME-SERIES data with hourly frequency. Consider exploring temporal patterns.
     NOTE: Apply principles from Wind Energy Handbook (atmospheric physics, turbulence, power curves) to create features.
+    NOTE: ERA5 provides 100m height data - closer to typical wind turbine hub heights (80-120m).
+    NOTE: Use 100m data for primary features, 10m for wind shear calculations.
 
-
-    Thought 1: Wind power is proportional to wind speed cubed, so adding polynomial features of wind speed should improve prediction.
-    New Feature 1: wind_speed_cubed | wind_speed_cubed = (wind_speed_10m ** 3)
+    Thought 1: Wind power is proportional to wind speed cubed at hub height (100m is closer to hub than 10m).
+    New Feature 1: wind_speed_100m_cubed | wind_speed_100m_cubed = (wind_speed_100m ** 3)
     """
     import pandas as pd
     import numpy as np
 
     df_output = df_input.copy()
 
-    # Add cubic wind speed feature (power law relationship)
-    df_output['wind_speed_cubed'] = df_input['wind_speed_10m'] ** 3
+    # Add cubic wind speed at hub height (100m)
+    df_output['wind_speed_100m_cubed'] = df_input['wind_speed_100m'] ** 3
 
     return df_output
