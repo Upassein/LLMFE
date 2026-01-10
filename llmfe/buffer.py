@@ -273,15 +273,11 @@ class Island:
 
                 # 🆕 Add score information if available
                 if hasattr(implementation, 'score') and implementation.score is not None:
-                    base_docstring += f'
-
-Score: {implementation.score:.3f} (RMSE={-implementation.score:.3f} MW)'
+                    base_docstring += f'\n\nScore: {implementation.score:.3f} (RMSE={-implementation.score:.3f} MW)'
 
                 # 🆕 Add CART feedback if available (OCTree-inspired)
                 if hasattr(implementation, 'cart_feedback') and implementation.cart_feedback:
-                    base_docstring += f'
-
-{implementation.cart_feedback}'
+                    base_docstring += f'\n\n{implementation.cart_feedback}'
 
                 implementation.docstring = base_docstring
             # If the function is recursive, replace calls to itself with its new name.
