@@ -88,7 +88,7 @@ def tree_to_text(cart_model: tree.DecisionTreeRegressor, feature_names: list) ->
             result += recurse(tree_.children_left[node], depth + 1)
         else:
             # Leaf node (prediction)
-            value = tree_.value[node][0]
+            value = float(tree_.value[node][0][0])  # Extract scalar from array
             result += f"{indent}power = {value:.2f} MW\n"
 
         return result
