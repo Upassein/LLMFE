@@ -212,9 +212,6 @@ def modify_features(df_input) -> pd.DataFrame:
     - month_sin, month_cos
 
     Your features will be automatically applied to all 4 grids.
-    NOTE: This is TIME-SERIES data with hourly frequency. Consider exploring temporal patterns.
-    NOTE: Apply principles from Wind Energy Handbook (atmospheric physics, turbulence, power curves) to create features.
-
 
     Thought 1: Wind power is proportional to wind speed cubed, so adding polynomial features of wind speed should improve prediction.
     New Feature 1: wind_speed_cubed | wind_speed_cubed = (wind_speed_10m ** 3)
