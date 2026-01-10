@@ -181,6 +181,11 @@ def evaluate(data: dict):
             from llmfe.utils.cart_feedback import get_cart_feedback
             # Use the final X and y to train CART
             cart_feedback = get_cart_feedback(X, y, max_depth=3)
+            print("=" * 50)
+            print("CART Decision Tree Feedback:")
+            print("=" * 50)
+            print(cart_feedback)
+            print("=" * 50)
         except Exception as e:
             print(f"CART generation failed: {e}")
             cart_feedback = None
