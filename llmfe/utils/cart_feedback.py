@@ -101,27 +101,45 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
     Train CART and generate text feedback for LLM.
 
     Args:
-        X: Feature matrix with engineered features
+        X: Feature matrix with engineered features (with grid suffixes like _grid1, _grid2)
         y: Target variable
         max_depth: Maximum tree depth
 
     Returns:
-        Formatted CART analysis text
+        Formatted CART analysis text with grid suffixes removed for LLM clarity
     """
     try:
         # Train CART
         cart_model = train_cart_for_regression(X, y, max_depth=max_depth)
 
-        # Convert to text
-        feature_names = X.columns.tolist()
-        cart_text = tree_to_text(cart_model, feature_names)
+        # Get original feature names and remove grid suffixes for LLM
+        original_feature_names = X.columns.tolist()
 
-        # Add feature importance summary
+        # Map: Remove _grid1, _grid2, _grid3, _grid4 suffixes
+        template_feature_names = []
+        for name in original_feature_names:
+            if name.endswith(('_grid1', '_grid2', '_grid3', '_grid4')):
+                template_name = name.rsplit('_grid', 1)[0]
+                template_feature_names.append(template_name)
+            else:
+                template_feature_names.append(name)
+
+        # Convert tree to text using template names
+        cart_text = tree_to_text(cart_model, template_feature_names)
+
+        # Aggregate feature importance by template name (sum across grids)
         importances = cart_model.feature_importances_
-        if importances.max() > 0:
-            top_feature_idx = importances.argmax()
-            top_feature = feature_names[top_feature_idx]
-            top_importance = importances[top_feature_idx]
+        aggregated_importances = {}
+        for i, (orig_name, template_name) in enumerate(zip(original_feature_names, template_feature_names)):
+            if template_name in aggregated_importances:
+                aggregated_importances[template_name] += importances[i]
+            else:
+                aggregated_importances[template_name] = importances[i]
+
+        # Get top features
+        if aggregated_importances:
+            sorted_features = sorted(aggregated_importances.items(), key=lambda x: x[1], reverse=True)
+            top_feature, top_importance = sorted_features[0]
 
             summary = f"Most Important Feature: {top_feature} (importance: {top_importance:.1%})\n\n"
             summary += "Decision Tree:\n" + cart_text
