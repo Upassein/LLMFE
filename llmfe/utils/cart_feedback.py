@@ -115,14 +115,13 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
         # Get original feature names and remove grid suffixes for LLM
         original_feature_names = X.columns.tolist()
 
-        # Map: Remove _grid1, _grid2, _grid3, _grid4 suffixes
+        # Map: Remove era5_grid1_, era5_grid2_, era5_grid3_, era5_grid4_ prefixes
+        import re
         template_feature_names = []
         for name in original_feature_names:
-            if name.endswith(('_grid1', '_grid2', '_grid3', '_grid4')):
-                template_name = name.rsplit('_grid', 1)[0]
-                template_feature_names.append(template_name)
-            else:
-                template_feature_names.append(name)
+            # Remove era5_gridX_ pattern (handles era5_grid1_wind_speed_10m -> wind_speed_10m)
+            template_name = re.sub(r'era5_grid[1-4]_', '', name)
+            template_feature_names.append(template_name)
 
         # Convert tree to text using template names
         cart_text = tree_to_text(cart_model, template_feature_names)
