@@ -134,7 +134,10 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
         3. Grid suffixes removed for LLM clarity
     """
     try:
-        # Get original feature names and remove grid suffixes for identification
+        # Train CART
+        cart_model = train_cart_for_regression(X, y, max_depth=max_depth)
+
+        # Get original feature names and remove grid suffixes for LLM
         original_feature_names = X.columns.tolist()
 
         # Map: Remove era5_grid1_, era5_grid2_, era5_grid3_, era5_grid4_ prefixes
@@ -144,50 +147,44 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
             template_name = re.sub(r'era5_grid[1-4]_', '', name)
             template_feature_names.append(template_name)
 
-        # Identify engineered feature columns (those NOT in ORIGINAL_ERA5_FEATURES)
-        engineered_indices = []
-        engineered_template_names = []
-        for i, template_name in enumerate(template_feature_names):
-            if template_name not in ORIGINAL_ERA5_FEATURES:
-                engineered_indices.append(i)
-                engineered_template_names.append(template_name)
-
-        # Check if we have engineered features
-        if len(engineered_indices) == 0:
-            return "=== CART Analysis ===\n\nNo engineered features detected in this version.\n"
-
-        # Extract only engineered features for CART training
-        X_engineered = X.iloc[:, engineered_indices]
-
-        # Train CART on ONLY engineered features
-        cart_model = train_cart_for_regression(X_engineered, y, max_depth=max_depth)
-
-        # Convert tree to text using engineered feature template names
-        cart_text = tree_to_text(cart_model, engineered_template_names)
+        # Convert tree to text using template names
+        cart_text = tree_to_text(cart_model, template_feature_names)
 
         # Aggregate feature importance by template name (sum across grids)
         importances = cart_model.feature_importances_
         aggregated_importances = {}
-        for i, template_name in enumerate(engineered_template_names):
+        for i, (orig_name, template_name) in enumerate(zip(original_feature_names, template_feature_names)):
             if template_name in aggregated_importances:
                 aggregated_importances[template_name] += importances[i]
             else:
                 aggregated_importances[template_name] = importances[i]
 
+        # Separate engineered features from original features
+        engineered_importance = {}
+        original_importance = {}
+        for feat_name, importance in aggregated_importances.items():
+            if feat_name in ORIGINAL_ERA5_FEATURES:
+                original_importance[feat_name] = importance
+            else:
+                engineered_importance[feat_name] = importance
+
         # Build feedback
-        feedback = "=== CART Analysis (Engineered Features Only) ===\n\n"
+        feedback = "=== CART Analysis ===\n\n"
 
         # Show Top-5 engineered features
-        sorted_eng = sorted(aggregated_importances.items(), key=lambda x: x[1], reverse=True)
-        top_k = min(5, len(sorted_eng))
+        if engineered_importance:
+            sorted_eng = sorted(engineered_importance.items(), key=lambda x: x[1], reverse=True)
+            top_k = min(5, len(sorted_eng))
 
-        feedback += "Top-5 Engineered Features (by importance):\n"
-        for feat, imp in sorted_eng[:top_k]:
-            feedback += f"  • {feat}: {imp*100:.1f}% importance\n"
-        feedback += "\n"
+            feedback += "Top-5 Engineered Features (by importance):\n"
+            for feat, imp in sorted_eng[:top_k]:
+                feedback += f"  • {feat}: {imp*100:.1f}% importance\n"
+            feedback += "\n"
+        else:
+            feedback += "No engineered features detected in this version.\n\n"
 
         # Show complete decision tree
-        feedback += "Decision Tree (using engineered features):\n"
+        feedback += "Decision Tree:\n"
         feedback += cart_text
 
         return feedback
