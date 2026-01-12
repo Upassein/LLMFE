@@ -407,6 +407,39 @@ class Island:
             new_prompt = new_prompt.replace('[PREFIX]', prefix).replace('[SUFFIX]', suffix)
         new_prompt = new_prompt.replace('[EXAMPLES]', in_context_desc).replace('[FEATURES]', feature_desc)
 
+
+        # Print CART feedback being fed to LLM
+        print("\n" + "=" * 80)
+        print(f"CART FEEDBACK BEING FED TO LLM (generating v{len(implementations)}):")
+        print("=" * 80)
+
+        # Extract and print CART feedback from all historical versions in the prompt
+        for i, impl in enumerate(implementations):
+            if i == 0:
+                continue  # Skip v0 (baseline)
+
+            version_name = f'{self._function_to_evolve}_v{i}'
+            print(f"\n--- {version_name} ---")
+
+            if hasattr(impl, 'cart_feedback') and impl.cart_feedback:
+                print(impl.cart_feedback)
+            else:
+                print("(No CART feedback available)")
+
+        # Print historical Top-3 context for the new version
+        if len(implementations) >= 3:
+            print(f"\n--- {self._function_to_evolve}_v{len(implementations)} (to be generated) ---")
+            # Extract historical Top-3 from the new version's docstring
+            new_func_docstring = versioned_functions[-1].docstring
+            if '=== Historical Top-3 Successful Versions ===' in new_func_docstring:
+                historical_section = new_func_docstring.split('=== Historical Top-3 Successful Versions ===')[1]
+                print("Historical Top-3 Context:")
+                print(historical_section.strip())
+            else:
+                print("(No historical Top-3 context)")
+
+        print("=" * 80 + "\n")
+
         return new_prompt
 
 
