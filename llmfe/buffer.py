@@ -292,12 +292,49 @@ class Island:
         # Create header of new function to be completed
         next_version = len(implementations)
         new_function_name = f'{self._function_to_evolve}_v{next_version}'
+
+        # Build docstring with historical context
+        new_docstring = f'Improved version of `{self._function_to_evolve}_v{next_version - 1}`. Think and suggest new features.'
+
+        # Add historical Top-3 context if we have enough versions (>=3)
+        if next_version >= 3:
+            # Get top-3 historical versions by score (from all clusters)
+            all_programs = []
+            for cluster in self._clusters.values():
+                all_programs.extend(cluster._programs)
+
+            # Only show historical context if we have at least 3 programs with scores
+            scored_programs = [f for f in all_programs if hasattr(f, 'score') and f.score is not None]
+            if len(scored_programs) >= 3:
+                top_funcs = sorted(scored_programs, key=lambda f: f.score, reverse=True)[:3]
+                new_docstring += '\n\n=== Historical Top-3 Successful Versions ===\n'
+                for rank, func in enumerate(top_funcs, 1):
+                    new_docstring += f'\n{rank}. {func.name} (RMSE={-func.score:.3f} MW)\n'
+
+                    # Extract top engineered features from CART feedback if available
+                    if hasattr(func, 'cart_feedback') and func.cart_feedback:
+                        # Parse Top-5 features from CART feedback
+                        cart_lines = func.cart_feedback.split('\n')
+                        top_features = []
+                        in_top5_section = False
+                        for line in cart_lines:
+                            if 'Top-5 Engineered Features' in line:
+                                in_top5_section = True
+                                continue
+                            if in_top5_section:
+                                if line.strip().startswith('•'):
+                                    top_features.append(line.strip())
+                                elif line.strip() == '' or 'Decision Tree' in line:
+                                    break
+
+                        if top_features:
+                            new_docstring += f'   Top features: {", ".join(feat.replace("• ", "") for feat in top_features[:3])}\n'
+
         header = dataclasses.replace(
             implementations[-1],
             name=new_function_name,
             body='',
-            docstring=('Improved version of '
-                       f'`{self._function_to_evolve}_v{next_version - 1}`. Think and suggest new features.'),
+            docstring=new_docstring,
         )
         versioned_functions.append(header)
         # Replace functions in the template with the list constructed here.

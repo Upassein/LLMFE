@@ -12,28 +12,6 @@ from sklearn import tree
 from sklearn.tree import _tree
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
-import re
-
-
-# Original ERA5 features (hardcoded)
-# 7 weather features per grid + 6 time features = 13 columns in template
-ORIGINAL_ERA5_FEATURES = [
-    # Weather features (from grid1 template)
-    'relative_humidity_2m',
-    'wind_speed_10m',
-    'wind_direction_10m',
-    'wind_speed_100m',
-    'wind_direction_100m',
-    'pressure_msl',
-    'surface_pressure',
-    # Time features (global, shared across grids)
-    'hour_sin',
-    'hour_cos',
-    'day_of_week_sin',
-    'day_of_week_cos',
-    'month_sin',
-    'month_cos'
-]
 
 
 def train_cart_for_regression(X: pd.DataFrame, y: pd.Series, max_depth: int = 3,
@@ -128,10 +106,7 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
         max_depth: Maximum tree depth
 
     Returns:
-        Formatted CART analysis text with:
-        1. Top-5 engineered features by importance
-        2. Complete decision tree
-        3. Grid suffixes removed for LLM clarity
+        Formatted CART analysis text with grid suffixes removed for LLM clarity
     """
     try:
         # Train CART
@@ -141,6 +116,7 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
         original_feature_names = X.columns.tolist()
 
         # Map: Remove era5_grid1_, era5_grid2_, era5_grid3_, era5_grid4_ prefixes
+        import re
         template_feature_names = []
         for name in original_feature_names:
             # Remove era5_gridX_ pattern (handles era5_grid1_wind_speed_10m -> wind_speed_10m)
@@ -159,35 +135,16 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
             else:
                 aggregated_importances[template_name] = importances[i]
 
-        # Separate engineered features from original features
-        engineered_importance = {}
-        original_importance = {}
-        for feat_name, importance in aggregated_importances.items():
-            if feat_name in ORIGINAL_ERA5_FEATURES:
-                original_importance[feat_name] = importance
-            else:
-                engineered_importance[feat_name] = importance
+        # Get top features
+        if aggregated_importances:
+            sorted_features = sorted(aggregated_importances.items(), key=lambda x: x[1], reverse=True)
+            top_feature, top_importance = sorted_features[0]
 
-        # Build feedback
-        feedback = "=== CART Analysis ===\n\n"
-
-        # Show Top-5 engineered features
-        if engineered_importance:
-            sorted_eng = sorted(engineered_importance.items(), key=lambda x: x[1], reverse=True)
-            top_k = min(5, len(sorted_eng))
-
-            feedback += "Top-5 Engineered Features (by importance):\n"
-            for feat, imp in sorted_eng[:top_k]:
-                feedback += f"  • {feat}: {imp*100:.1f}% importance\n"
-            feedback += "\n"
+            summary = f"Most Important Feature: {top_feature} (importance: {top_importance:.1%})\n\n"
+            summary += "Decision Tree:\n" + cart_text
+            return summary
         else:
-            feedback += "No engineered features detected in this version.\n\n"
-
-        # Show complete decision tree
-        feedback += "Decision Tree:\n"
-        feedback += cart_text
-
-        return feedback
+            return "Decision Tree:\n" + cart_text
 
     except Exception as e:
         return f"CART generation failed: {str(e)}"
