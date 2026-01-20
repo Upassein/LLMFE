@@ -177,11 +177,11 @@ def get_cart_feedback(X: pd.DataFrame, y: pd.Series, max_depth: int = 3) -> str:
         # Build feedback
         feedback = "=== CART Analysis (Engineered Features Only) ===\n\n"
 
-        # Show Top-5 engineered features
+        # Show Top-1 most important engineered feature
         sorted_eng = sorted(aggregated_importances.items(), key=lambda x: x[1], reverse=True)
-        top_k = min(5, len(sorted_eng))
+        top_k = min(1, len(sorted_eng))
 
-        feedback += "Top-5 Engineered Features (by importance):\n"
+        feedback += "Most Important Engineered Feature:\n"
         for feat, imp in sorted_eng[:top_k]:
             feedback += f"  • {feat}: {imp*100:.1f}% importance\n"
         feedback += "\n"
